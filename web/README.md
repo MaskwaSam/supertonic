@@ -46,6 +46,28 @@ npm run dev
 
 Vite serves the app at `http://localhost:3000` by default.
 
+## Static ZIP
+
+Build a self-contained static folder:
+
+```bash
+npm run build:static
+```
+
+The output goes to `web/dist` and includes the app, ONNX runtime files, Supertonic ONNX models, and voice styles. This build tries Hugging Face first, then falls back to the bundled model files if the CDN cannot be reached. Zip the contents of `web/dist`, upload the ZIP to a web server, unzip it, and open `index.html` over HTTP or HTTPS.
+
+The static bundle uses relative paths, so it can be hosted at the web server root or inside a subfolder.
+
+## CDN ZIP
+
+Build a smaller static folder that loads Supertonic model assets from Hugging Face:
+
+```bash
+npm run build:cdn
+```
+
+The output goes to `web/dist` and includes the app plus ONNX Runtime Web files. It does not include the Supertonic ONNX models or voice styles; those load from `https://huggingface.co/Supertone/supertonic-3/resolve/main`.
+
 ## Usage
 
 1. Wait for the status bar to show that models are loaded.

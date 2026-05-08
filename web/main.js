@@ -5,6 +5,15 @@ import {
     writeWavFile
 } from './helper.js';
 
+const DEFAULT_ASSET_BASE_URL = 'assets';
+const ASSET_BASE_URLS = (
+    import.meta.env.VITE_SUPERTONIC_ASSET_BASE_URLS ||
+    import.meta.env.VITE_SUPERTONIC_ASSET_BASE_URL ||
+    DEFAULT_ASSET_BASE_URL
+)
+    .split(',')
+    .map((baseUrl) => baseUrl.trim().replace(/\/$/, ''))
+    .filter(Boolean);
 const DEFAULT_VOICE_STYLE_PATH = 'assets/voice_styles/M1.json';
 const CHUNK_SILENCE_SECONDS = 0.3;
 const START_LEAD_SECONDS = 0.08;
@@ -12,6 +21,7 @@ const START_LEAD_SECONDS = 0.08;
 let textToSpeech = null;
 let currentStyle = null;
 let currentStylePath = DEFAULT_VOICE_STYLE_PATH;
+let activeAssetBaseUrl = ASSET_BASE_URLS[0] || DEFAULT_ASSET_BASE_URL;
 let modelsReady = false;
 
 let runId = 0;
@@ -55,6 +65,22 @@ const chunkStat = document.getElementById('chunkStat');
 const generatedStat = document.getElementById('generatedStat');
 const elapsedStat = document.getElementById('elapsedStat');
 const durationStat = document.getElementById('durationStat');
+
+function assetUrl(path, baseUrl = activeAssetBaseUrl) {
+    return `${baseUrl}/${path.replace(/^assets\//, '')}`;
+}
+
+function resolveAssetPath(path, baseUrl = activeAssetBaseUrl) {
+    if (/^https?:\/\//.test(path)) {
+        return path;
+    }
+
+    return assetUrl(path, baseUrl);
+}
+
+function assetSourceLabel(baseUrl) {
+    return /^https?:\/\//.test(baseUrl) ? 'CDN' : 'bundled model';
+}
 
 function getMaxChunkLength(lang) {
     return (lang === 'ko' || lang === 'ja') ? 120 : 300;
@@ -512,61 +538,81 @@ async function stopCurrentRun() {
     setStatus(modelsReady ? 'Stopped.' : 'Loading models...');
 }
 
-async function loadStyleFromJSON(stylePath) {
-    const nextStyle = await loadVoiceStyle([stylePath], true);
+async function loadStyleFromJSON(stylePath, baseUrl = activeAssetBaseUrl) {
+    const resolvedStylePath = resolveAssetPath(stylePath, baseUrl);
+    const nextStyle = await loadVoiceStyle([resolvedStylePath], true);
     currentStylePath = stylePath;
     currentStyle = nextStyle;
 }
 
 async function initializeModels() {
-    try {
-        setStatus('Loading configuration...');
-        const basePath = 'assets/onnx';
-        let executionProvider = 'wasm';
+    let lastError = null;
+
+    for (const baseUrl of ASSET_BASE_URLS) {
+        activeAssetBaseUrl = baseUrl;
+        const sourceLabel = assetSourceLabel(baseUrl);
 
         try {
-            const result = await loadTextToSpeech(
-                basePath,
-                {
-                    executionProviders: ['webgpu'],
-                    graphOptimizationLevel: 'all'
-                },
-                (modelName, current, total) => {
-                    setStatus(`Loading ONNX model ${current} of ${total}: ${modelName}`);
-                }
-            );
-            textToSpeech = result.textToSpeech;
-            executionProvider = 'webgpu';
-            backendBadge.textContent = 'WebGPU';
-            backendBadge.classList.add('webgpu');
-        } catch (webgpuError) {
-            const result = await loadTextToSpeech(
-                basePath,
-                {
-                    executionProviders: ['wasm'],
-                    graphOptimizationLevel: 'all'
-                },
-                (modelName, current, total) => {
-                    setStatus(`Loading ONNX model ${current} of ${total}: ${modelName}`);
-                }
-            );
-            textToSpeech = result.textToSpeech;
-            backendBadge.textContent = 'WebAssembly';
+            setStatus(`Loading configuration from ${sourceLabel}...`);
+            const basePath = assetUrl('onnx', baseUrl);
+            let executionProvider = 'wasm';
+
+            try {
+                const result = await loadTextToSpeech(
+                    basePath,
+                    {
+                        executionProviders: ['webgpu'],
+                        graphOptimizationLevel: 'all'
+                    },
+                    (modelName, current, total) => {
+                        setStatus(`Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`);
+                    }
+                );
+                textToSpeech = result.textToSpeech;
+                executionProvider = 'webgpu';
+                backendBadge.textContent = 'WebGPU';
+                backendBadge.classList.add('webgpu');
+            } catch (webgpuError) {
+                const result = await loadTextToSpeech(
+                    basePath,
+                    {
+                        executionProviders: ['wasm'],
+                        graphOptimizationLevel: 'all'
+                    },
+                    (modelName, current, total) => {
+                        setStatus(`Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`);
+                    }
+                );
+                textToSpeech = result.textToSpeech;
+                executionProvider = 'wasm';
+                backendBadge.textContent = 'WebAssembly';
+                backendBadge.classList.remove('webgpu');
+            }
+
+            setStatus(`Loading voice style from ${sourceLabel}...`);
+            await loadStyleFromJSON(currentStylePath, baseUrl);
+
+            modelsReady = true;
+            backendBadge.classList.add('visible');
+            setStatus(`Models loaded with ${executionProvider.toUpperCase()} from ${sourceLabel}.`, 'success');
+            setControls();
+            return;
+        } catch (error) {
+            lastError = error;
+            console.warn(`Could not load Supertonic assets from ${sourceLabel}:`, error);
+            textToSpeech = null;
+            currentStyle = null;
+            modelsReady = false;
+
+            if (baseUrl !== ASSET_BASE_URLS.at(-1)) {
+                setStatus(`Could not reach ${sourceLabel}; trying bundled model...`);
+            }
         }
-
-        setStatus('Loading voice style...');
-        await loadStyleFromJSON(currentStylePath);
-
-        modelsReady = true;
-        backendBadge.classList.add('visible');
-        setStatus(`Models loaded with ${executionProvider.toUpperCase()}.`, 'success');
-    } catch (error) {
-        modelsReady = false;
-        setStatus(`Model load failed: ${error.message}`, 'error');
-        showError('Model assets were not found or could not be loaded. Check that assets/onnx and assets/voice_styles exist.');
-    } finally {
-        setControls();
     }
+
+    setStatus(`Model load failed: ${lastError?.message || 'No model source was available.'}`, 'error');
+    showError('Model assets could not be loaded from the CDN or the bundled assets folder.');
+    setControls();
 }
 
 fileInput.addEventListener('change', async () => {

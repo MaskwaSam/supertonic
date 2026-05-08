@@ -7,6 +7,8 @@
     "assets:download": "node scripts/download-assets.mjs",
     "dev": "vite",
     "build": "vite build",
+    "build:static": "VITE_SUPERTONIC_ASSET_BASE_URLS=https://huggingface.co/Supertone/supertonic-3/resolve/main,assets vite build && node scripts/copy-static-assets.mjs",
+    "build:cdn": "VITE_SUPERTONIC_ASSET_BASE_URLS=https://huggingface.co/Supertone/supertonic-3/resolve/main vite build && node scripts/write-cdn-readme.mjs",
     "preview": "vite preview"
   },
   "keywords": ["tts", "onnx", "speech-synthesis", "web"],
