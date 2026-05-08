@@ -274,25 +274,40 @@ export class TextToSpeech {
         }
         const maxLen = (lang === 'ko' || lang === 'ja') ? 120 : 300;
         const textList = chunkText(text, maxLen);
-        const langList = new Array(textList.length).fill(lang);
         let wavCat = [];
         let durCat = 0;
         
         for (let i = 0; i < textList.length; i++) {
-            const { wav, duration } = await this._infer([textList[i]], [langList[i]], style, totalStep, speed, progressCallback);
+            const { wav, duration } = await this.synthesizeChunk(textList[i], lang, style, totalStep, speed, progressCallback);
             
             if (wavCat.length === 0) {
-                wavCat = wav;
-                durCat = duration[0];
+                wavCat = Array.from(wav);
+                durCat = duration;
             } else {
                 const silenceLen = Math.floor(silenceDuration * this.sampleRate);
                 const silence = new Array(silenceLen).fill(0);
                 wavCat = [...wavCat, ...silence, ...wav];
-                durCat += duration[0] + silenceDuration;
+                durCat += duration + silenceDuration;
             }
         }
         
         return { wav: wavCat, duration: [durCat] };
+    }
+
+    async synthesizeChunk(text, lang, style, totalStep, speed = 1.05, progressCallback = null) {
+        if (style.ttl.dims[0] !== 1) {
+            throw new Error('Single speaker text to speech only supports single style');
+        }
+
+        const { wav, duration } = await this._infer([text], [lang], style, totalStep, speed, progressCallback);
+        const durationSeconds = duration[0];
+        const wavLen = Math.floor(this.sampleRate * durationSeconds);
+        const trimmedWav = wav.slice(0, wavLen);
+
+        return {
+            wav: new Float32Array(trimmedWav),
+            duration: durationSeconds
+        };
     }
 
     async batch(textList, langList, style, totalStep, speed = 1.05, progressCallback = null) {
@@ -473,7 +488,7 @@ export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCal
 /**
  * Chunk text into manageable segments
  */
-function chunkText(text, maxLen = 300) {
+export function chunkText(text, maxLen = 300) {
     if (typeof text !== 'string') {
         throw new Error(`chunkText expects a string, got ${typeof text}`);
     }
@@ -494,6 +509,33 @@ function chunkText(text, maxLen = 300) {
         let currentChunk = "";
         
         for (let sentence of sentences) {
+            sentence = sentence.trim();
+            if (!sentence) continue;
+
+            if (sentence.length > maxLen) {
+                if (currentChunk) {
+                    chunks.push(currentChunk.trim());
+                    currentChunk = "";
+                }
+
+                const words = sentence.split(/\s+/).filter(Boolean);
+                let wordChunk = "";
+                for (const word of words) {
+                    if (wordChunk.length + word.length + 1 <= maxLen) {
+                        wordChunk += (wordChunk ? " " : "") + word;
+                    } else {
+                        if (wordChunk) {
+                            chunks.push(wordChunk.trim());
+                        }
+                        wordChunk = word;
+                    }
+                }
+                if (wordChunk) {
+                    currentChunk = wordChunk;
+                }
+                continue;
+            }
+
             if (currentChunk.length + sentence.length + 1 <= maxLen) {
                 currentChunk += (currentChunk ? " " : "") + sentence;
             } else {
