@@ -1,6 +1,7 @@
 import {
     chunkText,
     getWebFetchDiagnostics,
+    isAssetIntegrityError,
     loadTextToSpeech,
     loadVoiceStyle,
     writeWavFile
@@ -67,6 +68,7 @@ let styleLoadId = 0;
 let styleLoading = false;
 let supertonicBackendText = 'WebAssembly';
 let supertonicBackendUsesWebGPU = false;
+let webGpuAvailabilityPromise = null;
 
 let runId = 0;
 let runActive = false;
@@ -162,6 +164,22 @@ function resolveVoiceStylePath(path) {
 
 function assetSourceLabel(baseUrl) {
     return /^https?:\/\//.test(baseUrl) ? 'CDN' : 'local assets';
+}
+
+function hasUsableWebGpu() {
+    if (!webGpuAvailabilityPromise) {
+        webGpuAvailabilityPromise = (async () => {
+            if (!globalThis.navigator?.gpu?.requestAdapter) {
+                return false;
+            }
+            try {
+                return Boolean(await globalThis.navigator.gpu.requestAdapter());
+            } catch {
+                return false;
+            }
+        })();
+    }
+    return webGpuAvailabilityPromise;
 }
 
 function isBundledAssetSource(baseUrl = activeAssetBaseUrl) {
@@ -1238,6 +1256,9 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
             let executionProvider = 'wasm';
 
             try {
+                if (!await hasUsableWebGpu()) {
+                    throw new Error('No usable WebGPU adapter is available; using WebAssembly.');
+                }
                 const result = await loadTextToSpeech(
                     basePath,
                     {
@@ -1268,6 +1289,7 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
                 setBackendBadge(supertonicBackendText, { webgpu: true });
             } catch (webgpuError) {
                 if (loadId !== modelLoadId) return;
+                if (isAssetIntegrityError(webgpuError)) throw webgpuError;
                 const webgpuDiagnostics = formatFetchDiagnostics(webgpuError) || String(webgpuError?.message || webgpuError);
                 try {
                     const result = await loadTextToSpeech(
@@ -1299,6 +1321,7 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
                     supertonicBackendUsesWebGPU = false;
                     setBackendBadge(supertonicBackendText);
                 } catch (wasmError) {
+                    if (isAssetIntegrityError(wasmError)) throw wasmError;
                     const wasmDiagnostics = formatFetchDiagnostics(wasmError) || String(wasmError?.message || wasmError);
                     const combinedError = new Error(wasmError?.message || webgpuError?.message || 'Model load failed.');
                     combinedError.fetchDiagnostics = {

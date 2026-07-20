@@ -1,4 +1,5 @@
 import {
+    isAssetIntegrityError,
     loadTextToSpeech,
     loadVoiceStyle,
     writeWavFile
@@ -235,6 +236,7 @@ async function loadWithBestProvider(onnxBaseUrl, label) {
             )
         );
     } catch (webgpuError) {
+        if (isAssetIntegrityError(webgpuError)) throw webgpuError;
         console.warn('WebGPU load failed for voice examples; falling back to WebAssembly.', webgpuError);
         return loadTextToSpeech(
             onnxBaseUrl,
@@ -511,7 +513,7 @@ function waveBars(voice) {
     const seed = voice.id.charCodeAt(0) + Number(voice.id.slice(1)) * 7;
     return Array.from({ length: 18 }, (_, index) => {
         const height = 18 + ((seed + index * 11) % 30);
-        return `<span style="height:${height}px"></span>`;
+        return `<span class="voice-bar-height-${height}"></span>`;
     }).join('');
 }
 

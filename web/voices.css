@@ -298,6 +298,37 @@ button:focus-visible,
     background: #d9e2ec;
 }
 
+.voice-bar-height-18 { height: 18px; }
+.voice-bar-height-19 { height: 19px; }
+.voice-bar-height-20 { height: 20px; }
+.voice-bar-height-21 { height: 21px; }
+.voice-bar-height-22 { height: 22px; }
+.voice-bar-height-23 { height: 23px; }
+.voice-bar-height-24 { height: 24px; }
+.voice-bar-height-25 { height: 25px; }
+.voice-bar-height-26 { height: 26px; }
+.voice-bar-height-27 { height: 27px; }
+.voice-bar-height-28 { height: 28px; }
+.voice-bar-height-29 { height: 29px; }
+.voice-bar-height-30 { height: 30px; }
+.voice-bar-height-31 { height: 31px; }
+.voice-bar-height-32 { height: 32px; }
+.voice-bar-height-33 { height: 33px; }
+.voice-bar-height-34 { height: 34px; }
+.voice-bar-height-35 { height: 35px; }
+.voice-bar-height-36 { height: 36px; }
+.voice-bar-height-37 { height: 37px; }
+.voice-bar-height-38 { height: 38px; }
+.voice-bar-height-39 { height: 39px; }
+.voice-bar-height-40 { height: 40px; }
+.voice-bar-height-41 { height: 41px; }
+.voice-bar-height-42 { height: 42px; }
+.voice-bar-height-43 { height: 43px; }
+.voice-bar-height-44 { height: 44px; }
+.voice-bar-height-45 { height: 45px; }
+.voice-bar-height-46 { height: 46px; }
+.voice-bar-height-47 { height: 47px; }
+
 .voice-card.active .voice-wave span {
     background: #245f9f;
     animation: voice-pulse 680ms ease-in-out infinite alternate;

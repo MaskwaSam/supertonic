@@ -6,19 +6,33 @@ import {
     unicodeLength,
     validateVoiceStyleObject,
 } from './runtime-policy.js';
+import {
+    AssetIntegrityError,
+    REQUIRED_RUNTIME_MODEL_PATHS,
+    isAssetIntegrityError,
+    validateIntegrityManifest,
+    verifyAssetBytes,
+} from './runtime-integrity.js';
+
+export { isAssetIntegrityError } from './runtime-integrity.js';
 
 if (typeof document !== 'undefined') {
     const runtimeBaseUrl = new URL('onnx-runtime/', document.baseURI);
     ort.env.wasm.wasmPaths = {
-        mjs: new URL('ort-wasm-simd-threaded.jsep.js', runtimeBaseUrl).href,
+        mjs: new URL('ort-wasm-simd-threaded.jsep.mjs', runtimeBaseUrl).href,
         wasm: new URL('ort-wasm-simd-threaded.jsep.wasm', runtimeBaseUrl).href,
     };
 }
 
 const ASSET_FETCH_TIMEOUT_MS = 20000;
 const ASSET_FETCH_RETRIES = 1;
+const MODEL_FETCH_TIMEOUT_MS = 10 * 60 * 1000;
 const FETCH_DIAGNOSTIC_LIMIT = 40;
 const webFetchDiagnostics = [];
+const BUILD_ASSET_REVISION = typeof __SUPERTONIC_ASSET_REVISION__ === 'undefined'
+    ? ''
+    : __SUPERTONIC_ASSET_REVISION__;
+let runtimeIntegrityManifestPromise = null;
 
 function sleep(ms) {
     return new Promise((resolve) => {
@@ -129,6 +143,86 @@ async function fetchWithRetry(url, options = {}, retries = ASSET_FETCH_RETRIES, 
         error: normalizeFetchErrorMessage(lastError),
     };
     throw wrappedError;
+}
+
+function requiresRuntimeIntegrity(onnxDir) {
+    return /^https?:\/\//i.test(String(onnxDir || ''));
+}
+
+async function loadRuntimeIntegrityManifest() {
+    if (runtimeIntegrityManifestPromise) {
+        return runtimeIntegrityManifestPromise;
+    }
+    runtimeIntegrityManifestPromise = (async () => {
+        if (typeof document === 'undefined') {
+            throw new AssetIntegrityError('Cannot resolve the runtime asset integrity manifest outside a browser document.');
+        }
+        const manifestUrl = new URL('assets-integrity.json', document.baseURI).href;
+        try {
+            const response = await fetchWithRetry(manifestUrl, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+            });
+            if (!response.ok) {
+                throw new Error(`${response.status} ${response.statusText}`.trim());
+            }
+            const manifest = await response.json();
+            return validateIntegrityManifest(manifest, {
+                expectedRevision: BUILD_ASSET_REVISION,
+                requiredPaths: REQUIRED_RUNTIME_MODEL_PATHS,
+            });
+        } catch (cause) {
+            if (isAssetIntegrityError(cause)) {
+                throw cause;
+            }
+            throw new AssetIntegrityError(
+                `Could not load the required runtime asset integrity manifest from ${manifestUrl}: ${cause?.message || cause}`,
+                { cause }
+            );
+        }
+    })();
+    try {
+        return await runtimeIntegrityManifestPromise;
+    } catch (error) {
+        runtimeIntegrityManifestPromise = null;
+        throw error;
+    }
+}
+
+async function runtimeIntegrityPolicy(onnxDir) {
+    return requiresRuntimeIntegrity(onnxDir)
+        ? loadRuntimeIntegrityManifest()
+        : null;
+}
+
+async function fetchVerifiedRuntimeAsset(url, relativePath, integrityPolicy) {
+    const entry = integrityPolicy?.entries.get(relativePath);
+    if (!entry) {
+        throw new AssetIntegrityError(`No pinned runtime integrity metadata exists for ${relativePath}.`);
+    }
+    const response = await fetchWithRetry(
+        url,
+        { mode: 'cors' },
+        ASSET_FETCH_RETRIES,
+        MODEL_FETCH_TIMEOUT_MS
+    );
+    if (!response.ok) {
+        throw new Error(`Could not load ${url}: ${response.status} ${response.statusText}`.trim());
+    }
+    const buffer = await response.arrayBuffer();
+    return verifyAssetBytes(buffer, entry, relativePath);
+}
+
+async function fetchJsonRuntimeAsset(url, relativePath, integrityPolicy) {
+    if (!integrityPolicy) {
+        const response = await fetchWithRetry(url, { mode: 'cors' });
+        if (!response.ok) {
+            throw new Error(`Could not load ${url}: ${response.status} ${response.statusText}`.trim());
+        }
+        return response.json();
+    }
+    const bytes = await fetchVerifiedRuntimeAsset(url, relativePath, integrityPolicy);
+    return JSON.parse(new TextDecoder().decode(bytes));
 }
 
 async function diagnoseAssetReachability(url) {
@@ -616,33 +710,35 @@ export async function loadVoiceStyle(voiceStylePaths, verbose = false) {
 /**
  * Load configuration from JSON
  */
-export async function loadCfgs(onnxDir) {
-    const response = await fetchWithRetry(`${onnxDir}/tts.json`, { mode: 'cors' });
-    if (!response.ok) {
-        throw new Error(`Could not load ${onnxDir}/tts.json: ${response.status} ${response.statusText}`.trim());
-    }
-    const cfgs = await response.json();
-    return cfgs;
+export async function loadCfgs(onnxDir, integrityPolicy = null) {
+    return fetchJsonRuntimeAsset(
+        `${onnxDir}/tts.json`,
+        'onnx/tts.json',
+        integrityPolicy
+    );
 }
 
 /**
  * Load text processor
  */
-export async function loadTextProcessor(onnxDir) {
-    const response = await fetchWithRetry(`${onnxDir}/unicode_indexer.json`, { mode: 'cors' });
-    if (!response.ok) {
-        throw new Error(`Could not load ${onnxDir}/unicode_indexer.json: ${response.status} ${response.statusText}`.trim());
-    }
-    const indexer = await response.json();
+export async function loadTextProcessor(onnxDir, integrityPolicy = null) {
+    const indexer = await fetchJsonRuntimeAsset(
+        `${onnxDir}/unicode_indexer.json`,
+        'onnx/unicode_indexer.json',
+        integrityPolicy
+    );
     return new UnicodeProcessor(indexer);
 }
 
 /**
  * Load ONNX model
  */
-export async function loadOnnx(onnxPath, options) {
+export async function loadOnnx(onnxPath, options, integrityPath = null, integrityPolicy = null) {
+    const modelSource = integrityPath
+        ? await fetchVerifiedRuntimeAsset(onnxPath, integrityPath, integrityPolicy)
+        : onnxPath;
     try {
-        const session = await ort.InferenceSession.create(onnxPath, options);
+        const session = await ort.InferenceSession.create(modelSource, options);
         return session;
     } catch (error) {
         const diagnostic = await diagnoseAssetReachability(onnxPath);
@@ -672,8 +768,9 @@ async function releaseSessions(sessions) {
  */
 export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCallback = null, shouldContinue = () => true) {
     console.log('Using WebAssembly/WebGPU for inference');
-    
-    const cfgs = await loadCfgs(onnxDir);
+
+    const integrityPolicy = await runtimeIntegrityPolicy(onnxDir);
+    const cfgs = await loadCfgs(onnxDir, integrityPolicy);
     
     const dpPath = `${onnxDir}/duration_predictor.onnx`;
     const textEncPath = `${onnxDir}/text_encoder.onnx`;
@@ -681,10 +778,10 @@ export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCal
     const vocoderPath = `${onnxDir}/vocoder.onnx`;
     
     const modelPaths = [
-        { name: 'Duration Predictor', path: dpPath },
-        { name: 'Text Encoder', path: textEncPath },
-        { name: 'Vector Estimator', path: vectorEstPath },
-        { name: 'Vocoder', path: vocoderPath }
+        { name: 'Duration Predictor', path: dpPath, integrityPath: 'onnx/duration_predictor.onnx' },
+        { name: 'Text Encoder', path: textEncPath, integrityPath: 'onnx/text_encoder.onnx' },
+        { name: 'Vector Estimator', path: vectorEstPath, integrityPath: 'onnx/vector_estimator.onnx' },
+        { name: 'Vocoder', path: vocoderPath, integrityPath: 'onnx/vocoder.onnx' }
     ];
     
     const sessions = [];
@@ -697,7 +794,12 @@ export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCal
             if (progressCallback) {
                 progressCallback(modelPaths[i].name, i + 1, modelPaths.length);
             }
-            const session = await loadOnnx(modelPaths[i].path, sessionOptions);
+            const session = await loadOnnx(
+                modelPaths[i].path,
+                sessionOptions,
+                integrityPolicy ? modelPaths[i].integrityPath : null,
+                integrityPolicy
+            );
             sessions.push(session);
 
             if (!shouldContinue()) {
@@ -707,7 +809,7 @@ export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCal
 
         const [dpOrt, textEncOrt, vectorEstOrt, vocoderOrt] = sessions;
 
-        const textProcessor = await loadTextProcessor(onnxDir);
+        const textProcessor = await loadTextProcessor(onnxDir, integrityPolicy);
         if (!shouldContinue()) {
             throw new LoadCancelledError();
         }

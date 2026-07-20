@@ -425,13 +425,13 @@ echo -e "${YELLOW}Testing Rust...${NC}"
 echo "Building Rust project..."
 cd rust && cargo clean && cd ..
 if [ "$TEST_DEFAULT" = true ]; then
-    run_test "Rust (default)" "rust" "cargo run --release"
+    run_test "Rust (default)" "rust" "cargo run --locked --release"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "Rust (batch)" "rust" "cargo run --release -- --batch --voice-style ../$BATCH_VOICE_STYLE_1,../$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2' --lang $BATCH_LANG_1,$BATCH_LANG_2"
+    run_test "Rust (batch)" "rust" "cargo run --locked --release -- --batch --voice-style ../$BATCH_VOICE_STYLE_1,../$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2' --lang $BATCH_LANG_1,$BATCH_LANG_2"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
-    run_test "Rust (long-form)" "rust" "cargo run --release -- --voice-style ../$LONGFORM_VOICE_STYLE --text '$LONGFORM_TEXT'"
+    run_test "Rust (long-form)" "rust" "cargo run --locked --release -- --voice-style ../$LONGFORM_VOICE_STYLE --text '$LONGFORM_TEXT'"
 fi
 fi
 

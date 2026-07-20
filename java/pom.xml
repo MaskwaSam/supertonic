@@ -15,10 +15,9 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <maven.compiler.release>11</maven.compiler.release>
         <onnxruntime.version>1.23.1</onnxruntime.version>
-        <jackson.version>2.15.2</jackson.version>
+        <jackson.version>2.18.9</jackson.version>
     </properties>
 
     <dependencies>
@@ -107,4 +106,3 @@
         </plugins>
     </build>
 </project>
-

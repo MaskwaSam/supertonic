@@ -103,6 +103,7 @@ async function assertCommon(files) {
         'voices.html',
         'sw.js',
         'app-shell-manifest.json',
+        'assets-integrity.json',
         'README.txt',
         'RELEASE-MANIFEST.json',
         ...requiredLegalFiles,
@@ -154,6 +155,10 @@ async function assertCommon(files) {
     for (const { source, destination } of LEGAL_FILES) {
         await assertSameFile(path.resolve(webDir, source), destination);
     }
+    await assertSameFile(
+        path.join(webDir, 'assets-integrity.json'),
+        'assets-integrity.json'
+    );
 
     return manifest;
 }
@@ -220,6 +225,7 @@ function assertExactAllowlist(files, appShellManifest, resolvedMode) {
         'voices.html',
         'sw.js',
         'app-shell-manifest.json',
+        'assets-integrity.json',
         'README.txt',
         'RELEASE-MANIFEST.json',
         ...requiredLegalFiles,

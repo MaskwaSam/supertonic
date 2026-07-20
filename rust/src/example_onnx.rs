@@ -1,13 +1,14 @@
-use anyhow::Result;
 use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
 
-mod helper;
 mod conformance;
+mod error;
+mod helper;
 
-use helper::{load_text_to_speech, load_voice_style, sanitize_filename, timer, write_wav_file};
 use conformance::{validate_cli, CliInputs};
+use error::{message, Result};
+use helper::{load_text_to_speech, load_voice_style, sanitize_filename, timer, write_wav_file};
 
 #[derive(Parser, Debug)]
 #[command(name = "TTS ONNX Inference")]
@@ -63,25 +64,28 @@ fn main() -> Result<()> {
         n_test,
         text: text_list,
         lang: lang_list,
-    }).map_err(anyhow::Error::msg)?;
+    })
+    .map_err(message)?;
 
     if batch {
         if voice_style_paths.len() != text_list.len() {
-            anyhow::bail!(
+            return Err(message(format!(
                 "Number of voice styles ({}) must match number of texts ({})",
                 voice_style_paths.len(),
                 text_list.len()
-            );
+            )));
         }
         if lang_list.len() != text_list.len() {
-            anyhow::bail!(
+            return Err(message(format!(
                 "Number of languages ({}) must match number of texts ({})",
                 lang_list.len(),
                 text_list.len()
-            );
+            )));
         }
     } else if voice_style_paths.len() != 1 || text_list.len() != 1 || lang_list.len() != 1 {
-        anyhow::bail!("multiple voice styles, texts, or languages require --batch");
+        return Err(message(
+            "multiple voice styles, texts, or languages require --batch",
+        ));
     }
 
     let bsz = if batch { voice_style_paths.len() } else { 1 };

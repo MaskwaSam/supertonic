@@ -19,8 +19,9 @@ Browser text-to-speech reader for `.txt` files. It runs Supertonic 3 with ONNX R
 
 ## Requirements
 
-- Node.js for local development and builds.
+- Node.js 20.19 or newer, or Node.js 22.12 or newer, for local development and builds.
 - A modern browser with Web Audio support.
+- HTTPS for production. The application shell can render over plain HTTP, but service workers and Web Crypto integrity enforcement require a secure context (localhost is treated as secure for development).
 - Supertonic assets available at:
   - `assets/onnx/tts.json`
   - `assets/onnx/unicode_indexer.json`
@@ -45,7 +46,7 @@ This pulls ONNX files and voice styles from the pinned release revision into `su
 ## Run
 
 ```bash
-npm install
+npm ci
 npm run assets:download
 npm run dev
 ```
@@ -62,10 +63,11 @@ npm run build:cdn
 
 The output goes to `web/dist` and includes the app, ONNX Runtime Web files, and all 10 Supertonic voice-style JSON files. It does not include Supertonic ONNX model files or any secondary TTS model. Supertonic model files load from the pinned Hugging Face revision `724fb5abbf5502583fb520898d45929e62f02c0b`.
 The CDN build does not silently fall back to local model files; if the configured CDN cannot be reached, the app reports the CDN failure.
+Before an ONNX model or model JSON is used, the browser checks its exact byte length and SHA-256 against the shipped `assets-integrity.json`. A missing manifest, unavailable Web Crypto, or any mismatch stops model loading.
 
-Zip the contents of `web/dist`, upload the ZIP to a static web server or Moodle File resource, unzip it, and open `index.html` over HTTP or HTTPS. Open `voices.html` from the same folder to hear all 10 voice examples. The bundle uses relative paths, so it can be hosted at the web server root, inside a subfolder, or inside Moodle's file-serving path.
+Zip the contents of `web/dist`, upload the ZIP to an HTTPS static web server or Moodle File resource, unzip it, and open `index.html`. Open `voices.html` from the same folder to hear all 10 voice examples. The bundle uses relative paths, so it can be hosted at the web server root, inside a subfolder, or inside Moodle's file-serving path.
 
-`npm run build:cdn` also writes `web/dist/README.txt`, which lists the bundled files and the pinned CDN model source. Serve `.mjs` files as JavaScript and `.wasm` files as WebAssembly; do not test production bundles through `file://`.
+`npm run build:cdn` also writes `web/dist/README.txt`, which lists the bundled files and the pinned CDN model source. Do not test production bundles through `file://`.
 
 ## Static Bundle
 
@@ -75,7 +77,7 @@ Build a self-contained static folder:
 npm run build:static
 ```
 
-The output goes to `web/dist` and includes the app, ONNX Runtime Web files, Supertonic ONNX models, and all bundled Supertonic voice styles. This build loads models from the bundled `assets/` folder, so the uploaded app does not depend on Hugging Face after it is served over HTTP or HTTPS.
+The output goes to `web/dist` and includes the app, ONNX Runtime Web files, Supertonic ONNX models, and all bundled Supertonic voice styles. This build loads models from the bundled `assets/` folder, so the uploaded app does not depend on Hugging Face after it is served over HTTPS.
 The same folder also includes `voices.html` for side-by-side voice previews.
 
 To create release archives from the current source:
@@ -87,12 +89,55 @@ npm run zip:static
 
 Those commands rebuild, verify `web/dist`, and write `supertonic-reader-cdn.zip` or `supertonic-reader-static.zip` at the workspace root.
 
+## Production Hosting
+
+- Serve the extracted folder over HTTPS. Keep `assets-integrity.json`, `sw.js`, `app-shell-manifest.json`, both HTML files, `assets/`, and `onnx-runtime/` at their packaged relative paths.
+- Send JavaScript (`.js` and `.mjs`) as JavaScript, `.wasm` as `application/wasm`, JSON as `application/json`, and ONNX files as `application/octet-stream`. Send `X-Content-Type-Options: nosniff`.
+- Revalidate `index.html`, `voices.html`, `sw.js`, `app-shell-manifest.json`, and `assets-integrity.json` on deployment. Fingerprinted files under `assets/` may use long-lived immutable caching.
+- The CDN bundle must be allowed to connect to `https://huggingface.co` and its signed asset hosts under `https://*.hf.co`. The static bundle needs only `'self'` connections.
+- The service-worker build ID includes the build mode, asset base URL, pinned model revision, application sources, and lockfile. Replacing a CDN deployment with a static deployment at the same path therefore installs a distinct app-shell cache.
+
+A strict baseline Content Security Policy for the CDN bundle is:
+
+```text
+default-src 'none'; base-uri 'none'; object-src 'none';
+script-src 'self' 'wasm-unsafe-eval';
+style-src 'self';
+connect-src 'self' https://huggingface.co https://*.hf.co;
+worker-src 'self' blob:;
+media-src 'self' blob:;
+img-src 'self' data: blob:;
+```
+
+For the static bundle, reduce `connect-src` to `'self'`. `wasm-unsafe-eval` is required for ONNX Runtime WebAssembly compilation; JavaScript `unsafe-eval` and inline script/style permissions are not required by the packaged reader.
+
+## Verification
+
+The normal browser suite is deliberately model-free:
+
+```bash
+npm run test:ci
+npm run test:e2e
+```
+
+Run the opt-in full-model smoke before a production promotion. It downloads the real model, generates a short utterance, and verifies the downloaded WAV header and payload:
+
+```bash
+npm run test:e2e:full-model
+```
+
+To exercise an already-hosted CDN or static release instead of the local Vite server:
+
+```bash
+SUPERTONIC_FULL_MODEL_URL=https://example.test/reader/ npm run test:e2e:full-model
+```
+
 ## Usage
 
-1. Wait for the status bar to show that Supertonic is loaded.
-2. Choose a `.txt` file or edit the source text.
-3. Pick a voice, language, step count, and speed.
-4. Click `Generate & Play`.
+1. Choose a `.txt` file or edit the source text. No model data is downloaded in the background.
+2. Pick a voice, language, step count, and speed.
+3. Click `Load ~380 MiB & Play`; this explicit action downloads and verifies the model on first use. Later runs show `Generate & Play`.
+4. Click any reader chunk once to generate or play from that chunk.
 5. Use the reader panel to follow the active generated chunk.
 6. Download the final WAV after all chunks are generated.
 

@@ -9,6 +9,10 @@ import {
     REQUIRED_ONNX_FILES,
     REQUIRED_VOICE_STYLE_FILES,
 } from './package-config.mjs';
+import {
+    INTEGRITY_MANIFEST_PATH,
+    verifyLocalAssets,
+} from './asset-integrity.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(__dirname, '..');
@@ -135,9 +139,7 @@ function assertSupertonicOnly(files) {
 }
 
 async function main() {
-    for (const asset of requiredAssets) {
-        await assertFile(asset);
-    }
+    await verifyLocalAssets(requiredAssets, sourceAssetsDir);
 
     await mkdir(distAssetsDir, { recursive: true });
     for (const asset of requiredAssets) {
@@ -145,6 +147,7 @@ async function main() {
     }
     await copyOnnxRuntime(supertonicOnnxRuntimeDistDir, distSupertonicRuntimeDir, 'Supertonic');
     await copyLegalFiles();
+    await copyFileByStream(INTEGRITY_MANIFEST_PATH, path.join(distDir, 'assets-integrity.json'));
     await removeFinderConflictCopies(distDir);
     await removeUnusedViteRuntimeWasmCopies();
 
@@ -153,11 +156,11 @@ async function main() {
     const readme = [
         "# Mr.Patterson's Reader Static Bundle",
         '',
-        'Upload this folder to any static web server or Moodle File resource and open `index.html` over HTTP or HTTPS.',
+        'Upload this folder to a static web server or Moodle File resource and open `index.html` over HTTPS.',
         '',
         'This self-contained bundle loads Supertonic models from the bundled `assets/` folder. It does not require the Hugging Face CDN after upload.',
         '',
-        'Double-click a reader chunk to start playback there. Already-generated chunks reuse cached audio instead of regenerating.',
+        'Click a reader chunk once to start playback there. Already-generated chunks reuse cached audio instead of regenerating.',
         '',
         'Use the fixed mobile controls at the bottom of the screen for play, pause, stop, and WAV download while reading on a phone or tablet.',
         '',
@@ -168,6 +171,10 @@ async function main() {
         'To use your own voice, create and download a Supertonic-compatible voice-style JSON from Supertonic Voice Builder, then open the top-right voice settings gear and load it with the `Custom voice JSON` picker.',
         '',
         'The service worker caches only the app shell. It does not cache the large bundled Supertonic model files by default.',
+        '',
+        "Recommended CSP: default-src 'none'; base-uri 'none'; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; worker-src 'self' blob:; media-src 'self' blob:; img-src 'self' data: blob:.",
+        '',
+        'Serve .js and .mjs as JavaScript, .wasm as application/wasm, JSON as application/json, and ONNX files as application/octet-stream. Send X-Content-Type-Options: nosniff.',
         '',
         'Do not open `index.html` directly with `file://`; browser security rules can block ONNX, WASM, and model asset loading.',
         '',

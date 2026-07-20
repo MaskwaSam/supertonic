@@ -2,7 +2,7 @@
 // TTS Helper Module - All utility functions and structures
 // ============================================================================
 
-use anyhow::{bail, Context, Result};
+use crate::error::{context, message, Result};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use ndarray::{Array, Array3};
 use rand_distr::{Distribution, Normal};
@@ -234,11 +234,10 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
 
     // Validate language
     if !is_valid_lang(lang) {
-        bail!(
+        return Err(message(format!(
             "Invalid language: {}. Available: {:?}",
-            lang,
-            AVAILABLE_LANGS
-        );
+            lang, AVAILABLE_LANGS
+        )));
     }
 
     // Wrap text with language tags
@@ -355,11 +354,6 @@ pub fn write_wav_file<P: AsRef<Path>>(
 // ============================================================================
 
 const MAX_CHUNK_LENGTH: usize = 300;
-
-const ABBREVIATIONS: &[&str] = &[
-    "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.", "St.", "Ave.", "Rd.", "Blvd.", "Dept.",
-    "Inc.", "Ltd.", "Co.", "Corp.", "etc.", "vs.", "i.e.", "e.g.", "Ph.D.",
-];
 
 pub fn chunk_text(text: &str, max_len: Option<usize>) -> Vec<String> {
     crate::conformance::chunk_text(text, max_len.unwrap_or(MAX_CHUNK_LENGTH))
@@ -624,8 +618,8 @@ pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<S
     let bsz = voice_style_paths.len();
 
     // Read first file to get dimensions
-    let first_file =
-        File::open(&voice_style_paths[0]).context("Failed to open voice style file")?;
+    let first_file = File::open(&voice_style_paths[0])
+        .map_err(|source| context("Failed to open voice style file", source))?;
     let first_reader = BufReader::new(first_file);
     let first_data: VoiceStyleData = serde_json::from_reader(first_reader)?;
 
@@ -645,7 +639,8 @@ pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<S
 
     // Fill in the data
     for (i, path) in voice_style_paths.iter().enumerate() {
-        let file = File::open(path).context("Failed to open voice style file")?;
+        let file = File::open(path)
+            .map_err(|source| context("Failed to open voice style file", source))?;
         let reader = BufReader::new(file);
         let data: VoiceStyleData = serde_json::from_reader(reader)?;
 
@@ -690,7 +685,7 @@ pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<S
 /// Load TTS components
 pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech> {
     if use_gpu {
-        anyhow::bail!("GPU mode is not supported yet");
+        return Err(message("GPU mode is not supported yet"));
     }
     println!("Using CPU for inference\n");
 

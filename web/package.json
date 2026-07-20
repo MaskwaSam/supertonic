@@ -7,8 +7,8 @@
     "assets:download": "node scripts/download-assets.mjs",
     "dev": "vite",
     "build": "vite build",
-    "build:static": "VITE_SUPERTONIC_ASSET_BASE_URLS=assets vite build && node scripts/copy-static-assets.mjs && node scripts/write-release-manifest.mjs --mode static",
-    "build:cdn": "VITE_SUPERTONIC_ASSET_BASE_URLS=https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b vite build && node scripts/write-cdn-readme.mjs && node scripts/write-release-manifest.mjs --mode cdn",
+    "build:static": "SUPERTONIC_BUILD_MODE=static VITE_SUPERTONIC_ASSET_BASE_URLS=assets vite build && node scripts/copy-static-assets.mjs && node scripts/write-release-manifest.mjs --mode static",
+    "build:cdn": "SUPERTONIC_BUILD_MODE=cdn VITE_SUPERTONIC_ASSET_BASE_URLS=https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b vite build && node scripts/write-cdn-readme.mjs && node scripts/write-release-manifest.mjs --mode cdn",
     "verify:dist": "node scripts/verify-dist.mjs",
     "smoke:responsive": "node scripts/smoke-responsive.mjs",
     "zip:cdn": "npm run build:cdn && node scripts/verify-dist.mjs --mode cdn && node scripts/zip-dist.mjs ../../artifacts/supertonic-reader-cdn.zip",
@@ -18,7 +18,8 @@
     "test": "npm run test:ci",
     "test:unit": "node --test tests/*.test.js",
     "test:e2e": "playwright test",
-    "test:ci": "node --check main.js && node --check voices.js && node --check helper.js && node --check runtime-policy.js && node --check speech-normalizer.js && node --check vite.config.js && node --check public/sw.js && node --check scripts/download-assets.mjs && node --check scripts/package-config.mjs && node --check scripts/copy-static-assets.mjs && node --check scripts/write-cdn-readme.mjs && node --check scripts/write-release-manifest.mjs && node --check scripts/verify-dist.mjs && node --check scripts/zip-dist.mjs && node --check scripts/smoke-responsive.mjs && npm run test:unit",
+    "test:e2e:full-model": "VITE_SUPERTONIC_ASSET_BASE_URLS=https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b SUPERTONIC_FULL_MODEL_SMOKE=1 playwright test tests/e2e/full-model.spec.js",
+    "test:ci": "node --check main.js && node --check voices.js && node --check helper.js && node --check runtime-integrity.js && node --check runtime-policy.js && node --check speech-normalizer.js && node --check vite.config.js && node --check public/sw.js && node --check scripts/asset-integrity.mjs && node --check scripts/build-identity.mjs && node --check scripts/download-assets.mjs && node --check scripts/package-config.mjs && node --check scripts/copy-static-assets.mjs && node --check scripts/write-cdn-readme.mjs && node --check scripts/write-release-manifest.mjs && node --check scripts/verify-dist.mjs && node --check scripts/zip-dist.mjs && node --check scripts/smoke-responsive.mjs && node --check tests/e2e/full-model.spec.js && npm run test:unit",
     "lint": "npm run test:ci"
   },
   "keywords": [

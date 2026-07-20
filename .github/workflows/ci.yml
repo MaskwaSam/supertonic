@@ -7,11 +7,16 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+
 jobs:
   repository-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - name: Shell syntax
         run: bash -n test_all.sh tests/conformance/run.sh
       - name: Python source syntax
@@ -20,8 +25,10 @@ jobs:
   web-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
@@ -29,6 +36,9 @@ jobs:
       - name: Install web dependencies
         working-directory: web
         run: npm ci
+      - name: Audit web dependency lock
+        working-directory: web
+        run: npm audit --audit-level=high
       - name: Web syntax and model-free unit tests
         working-directory: web
         run: npm run test:ci
@@ -50,11 +60,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sdk: [python, node, go, rust, cpp, dart]
+        sdk: [python, node, go, rust, cpp, csharp, java, dart]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         if: matrix.sdk == 'python'
         with:
           python-version: "3.12"
@@ -62,7 +74,7 @@ jobs:
         if: matrix.sdk == 'python'
         run: python3 py/test_conformance.py
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: matrix.sdk == 'node'
         with:
           node-version: "20"
@@ -71,7 +83,7 @@ jobs:
         working-directory: nodejs
         run: npm test
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         if: matrix.sdk == 'go'
         with:
           go-version: "1.21.x"
@@ -81,8 +93,18 @@ jobs:
         working-directory: go
         run: go test ./textutil
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         if: matrix.sdk == 'rust'
+      - name: Rust locked dependency and build check
+        if: matrix.sdk == 'rust'
+        working-directory: rust
+        run: cargo check --locked
+      - name: Rust dependency security audit
+        if: matrix.sdk == 'rust'
+        working-directory: rust
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit --deny warnings
       - name: Rust conformance
         if: matrix.sdk == 'rust'
         run: |
@@ -95,7 +117,32 @@ jobs:
           c++ -std=c++17 -Wall -Wextra -pedantic cpp/text_utils.cpp cpp/test_text_utils.cpp -o /tmp/supertonic-cpp-conformance
           /tmp/supertonic-cpp-conformance tests/conformance/conformance.json
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        if: matrix.sdk == 'csharp'
+        with:
+          dotnet-version: "9.0.x"
+      - name: C# locked restore and release build
+        if: matrix.sdk == 'csharp'
+        working-directory: csharp
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
+        run: |
+          dotnet restore --locked-mode
+          dotnet build --configuration Release --no-restore
+
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        if: matrix.sdk == 'java'
+        with:
+          distribution: "temurin"
+          java-version: "17"
+          cache: "maven"
+      - name: Java release build
+        if: matrix.sdk == 'java'
+        working-directory: java
+        run: mvn --batch-mode --no-transfer-progress -DskipTests package
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         if: matrix.sdk == 'dart'
       - name: Flutter selector and Dart conformance
         if: matrix.sdk == 'dart'

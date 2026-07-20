@@ -9,6 +9,10 @@ import {
     ONNX_RUNTIME_FILES,
     REQUIRED_VOICE_STYLE_FILES,
 } from './package-config.mjs';
+import {
+    INTEGRITY_MANIFEST_PATH,
+    verifyLocalAssets,
+} from './asset-integrity.mjs';
 
 const CDN_ASSET_REVISION = process.env.SUPERTONIC_ASSET_REVISION || PINNED_CDN_ASSET_REVISION;
 const CDN_BASE_URL = `https://huggingface.co/Supertone/supertonic-3/resolve/${CDN_ASSET_REVISION}`;
@@ -141,9 +145,14 @@ function assertSupertonicOnly(files) {
 }
 
 async function main() {
+    await verifyLocalAssets(
+        REQUIRED_VOICE_STYLE_FILES.map((file) => `voice_styles/${file}`),
+        sourceAssetsDir
+    );
     await copyOnnxRuntime();
     await copyVoiceStyles();
     await copyLegalFiles();
+    await copyFileByStream(INTEGRITY_MANIFEST_PATH, path.join(distDir, 'assets-integrity.json'));
     await removeFinderConflictCopies(distDir);
     await removeUnusedViteRuntimeWasmCopies();
 
@@ -152,16 +161,17 @@ async function main() {
     const readme = [
         '# Supertonic Reader CDN Bundle',
         '',
-        'Upload this folder to any static web server or Moodle File resource and open `index.html` over HTTP or HTTPS.',
+        'Upload this folder to a static web server or Moodle File resource and open `index.html` over HTTPS.',
         '',
         `This CDN bundle loads Supertonic ONNX model files from ${CDN_BASE_URL}.`,
         `Pinned asset revision: ${CDN_ASSET_REVISION}.`,
+        'Every downloaded model/config file is checked against the byte length and SHA-256 in the shipped assets-integrity.json before use.',
         '',
         'It includes the Supertonic app, ONNX Runtime Web files, and all 10 bundled Supertonic voice styles: F1-F5 and M1-M5.',
         '',
         'It intentionally does not include Supertonic ONNX model files or any secondary TTS model.',
         '',
-        'Double-click a reader chunk to start playback there. Already-generated chunks reuse cached audio instead of regenerating.',
+        'Click a reader chunk once to start playback there. Already-generated chunks reuse cached audio instead of regenerating.',
         '',
         'Use the fixed mobile controls at the bottom of the screen for play, pause, stop, and WAV download while reading on a phone or tablet.',
         '',
@@ -171,7 +181,9 @@ async function main() {
         '',
         'The service worker precaches the production app shell from app-shell-manifest.json. It does not cache Supertonic model files, voice styles, or runtime WASM files by default.',
         '',
-        'The server that hosts this folder must allow normal static file serving for HTML, JS, CSS, and WASM files.',
+        "Recommended CSP: default-src 'none'; base-uri 'none'; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https://huggingface.co https://*.hf.co; worker-src 'self' blob:; media-src 'self' blob:; img-src 'self' data: blob:.",
+        '',
+        'Serve .js and .mjs as JavaScript, .wasm as application/wasm, and JSON as application/json. Send X-Content-Type-Options: nosniff.',
         '',
         'Bundled files:',
         '- README.txt',
