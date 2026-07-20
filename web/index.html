@@ -3,21 +3,48 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Mr.Patterson's Reader</title>
+        <title>Supertonic Reader</title>
         <link rel="stylesheet" href="/style.css">
     </head>
     <body>
         <main class="app-shell">
             <header class="app-header">
                 <div>
-                    <h1>Mr.Patterson's Reader</h1>
-                    <p class="subtitle">Local text-to-speech with streamed playback</p>
+                    <h1>Supertonic Reader</h1>
+                    <p class="subtitle">Supertonic 3 text-to-speech with streamed playback</p>
                 </div>
-                <div id="backendBadge" class="backend-badge">WebAssembly</div>
+                <div class="header-actions">
+                    <a class="header-link" href="./voices.html">Voice examples</a>
+                    <div class="badge-row" aria-label="Runtime status">
+                        <div id="backendBadge" class="backend-badge">WebAssembly</div>
+                        <div id="modelSourceBadge" class="source-badge">Model: loading</div>
+                    </div>
+                    <div id="voiceSettingsContainer" class="settings-menu">
+                        <button id="voiceSettingsButton" class="icon-button" type="button" aria-label="Voice settings" aria-expanded="false" aria-controls="voiceSettingsPanel">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.52a2 2 0 0 1-1 1.72l-.15.1a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.52a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        </button>
+                        <div id="voiceSettingsPanel" class="settings-panel" hidden>
+                            <label class="setting-row" for="wordHighlightToggle">
+                                <input id="wordHighlightToggle" type="checkbox">
+                                <span>Word highlighting</span>
+                            </label>
+                            <div class="field-group">
+                                <label for="customVoiceInput">Custom voice JSON</label>
+                                <input id="customVoiceInput" type="file" accept=".json,application/json">
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </header>
 
             <section id="statusBox" class="status-box" aria-live="polite">
-                <span id="statusText">Loading models...</span>
+                <div>
+                    <span id="statusPhase" class="status-phase">Loading</span>
+                    <span id="statusText">Preparing model sources...</span>
+                </div>
             </section>
 
             <section class="workspace">
@@ -33,7 +60,7 @@
                     </div>
 
                     <div class="field-grid">
-                        <div class="field-group">
+                        <div class="field-group supertonic-setting">
                             <label for="voiceStyleSelect">Voice</label>
                             <select id="voiceStyleSelect">
                                 <option value="assets/voice_styles/M1.json">Male 1</option>
@@ -49,7 +76,7 @@
                             </select>
                         </div>
 
-                        <div class="field-group">
+                        <div class="field-group supertonic-setting">
                             <label for="langSelect">Language</label>
                             <select id="langSelect">
                                 <option value="en" selected>English</option>
@@ -86,15 +113,16 @@
                             </select>
                         </div>
 
-                        <div class="field-group">
+                        <div class="field-group supertonic-setting">
                             <label for="totalStep">Steps</label>
                             <input type="number" id="totalStep" value="8" min="1" max="50">
                         </div>
 
-                        <div class="field-group">
+                        <div class="field-group supertonic-setting">
                             <label for="speed">Speed</label>
                             <input type="number" id="speed" value="1.05" min="0.5" max="2.0" step="0.05">
                         </div>
+
                     </div>
 
                     <div class="button-row">
@@ -102,6 +130,11 @@
                         <button id="pauseBtn" disabled>Pause</button>
                         <button id="resumeBtn" disabled>Resume</button>
                         <button id="stopBtn" disabled>Stop</button>
+                    </div>
+
+                    <div class="mobile-note">
+                        <strong>Mobile</strong>
+                        <span>Keep this page open and the screen awake while generating audio.</span>
                     </div>
 
                     <div id="error" class="error" role="alert"></div>
@@ -136,6 +169,32 @@
                 </section>
             </section>
         </main>
+
+        <div class="sticky-controls" aria-label="Playback shortcuts">
+            <button id="stickyPlayBtn" class="sticky-button" type="button" aria-label="Play or resume" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <polygon points="8 5 19 12 8 19 8 5"></polygon>
+                </svg>
+            </button>
+            <button id="stickyPauseBtn" class="sticky-button" type="button" aria-label="Pause playback" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="6" y="4" width="4" height="16"></rect>
+                    <rect x="14" y="4" width="4" height="16"></rect>
+                </svg>
+            </button>
+            <button id="stickyStopBtn" class="sticky-button" type="button" aria-label="Stop playback" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="7" y="7" width="10" height="10"></rect>
+                </svg>
+            </button>
+            <button id="stickyDownloadBtn" class="sticky-button" type="button" aria-label="Download WAV for offline listening" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3v12"></path>
+                    <path d="m7 10 5 5 5-5"></path>
+                    <path d="M5 21h14"></path>
+                </svg>
+            </button>
+        </div>
 
         <script type="module" src="/main.js"></script>
     </body>

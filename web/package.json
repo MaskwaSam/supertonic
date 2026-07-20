@@ -7,16 +7,29 @@
     "assets:download": "node scripts/download-assets.mjs",
     "dev": "vite",
     "build": "vite build",
-    "build:static": "VITE_SUPERTONIC_ASSET_BASE_URLS=https://huggingface.co/Supertone/supertonic-3/resolve/main,assets vite build && node scripts/copy-static-assets.mjs",
-    "build:cdn": "VITE_SUPERTONIC_ASSET_BASE_URLS=https://huggingface.co/Supertone/supertonic-3/resolve/main vite build && node scripts/write-cdn-readme.mjs",
-    "preview": "vite preview"
+    "build:static": "VITE_SUPERTONIC_ASSET_BASE_URLS=assets vite build && node scripts/copy-static-assets.mjs",
+    "build:cdn": "VITE_SUPERTONIC_ASSET_BASE_URLS=https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b vite build && node scripts/write-cdn-readme.mjs",
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "smoke:responsive": "node scripts/smoke-responsive.mjs",
+    "zip:cdn": "npm run build:cdn && node scripts/verify-dist.mjs --mode cdn && node scripts/zip-dist.mjs ../../supertonic-reader-cdn.zip",
+    "zip:static": "npm run build:static && node scripts/verify-dist.mjs --mode static && node scripts/zip-dist.mjs ../../supertonic-reader-static.zip",
+    "package:all": "npm run zip:cdn && npm run zip:static",
+    "preview": "vite preview",
+    "test": "npm run test:ci",
+    "test:ci": "node --check main.js && node --check voices.js && node --check helper.js && node --check speech-normalizer.js && node --check vite.config.js && node --check public/sw.js && node --check scripts/download-assets.mjs && node --check scripts/copy-static-assets.mjs && node --check scripts/write-cdn-readme.mjs && node --check scripts/verify-dist.mjs && node --check scripts/zip-dist.mjs && node --check scripts/smoke-responsive.mjs",
+    "lint": "npm run test:ci"
   },
-  "keywords": ["tts", "onnx", "speech-synthesis", "web"],
+  "keywords": [
+    "tts",
+    "onnx",
+    "speech-synthesis",
+    "web"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "fft.js": "^4.0.3",
-    "onnxruntime-web": "^1.17.0"
+    "onnxruntime-web": "1.26.0"
   },
   "devDependencies": {
     "vite": "^5.0.0"

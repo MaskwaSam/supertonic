@@ -1,10 +1,176 @@
 import * as ort from 'onnxruntime-web';
 
+if (typeof document !== 'undefined') {
+    ort.env.wasm.wasmPaths = new URL('onnx-runtime/', document.baseURI).href;
+}
+
+const ASSET_FETCH_TIMEOUT_MS = 20000;
+const ASSET_FETCH_RETRIES = 1;
+const FETCH_DIAGNOSTIC_LIMIT = 40;
+const webFetchDiagnostics = [];
+
+function sleep(ms) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+function recordWebFetchDiagnostic(entry) {
+    webFetchDiagnostics.unshift({
+        at: new Date().toISOString(),
+        ...entry,
+    });
+    if (webFetchDiagnostics.length > FETCH_DIAGNOSTIC_LIMIT) {
+        webFetchDiagnostics.length = FETCH_DIAGNOSTIC_LIMIT;
+    }
+}
+
 // Available languages for multilingual TTS
 export const AVAILABLE_LANGS = ['en', 'ko', 'ja', 'ar', 'bg', 'cs', 'da', 'de', 'el', 'es', 'et', 'fi', 'fr', 'hi', 'hr', 'hu', 'id', 'it', 'lt', 'lv', 'nl', 'pl', 'pt', 'ro', 'ru', 'sk', 'sl', 'sv', 'tr', 'uk', 'vi'];
 
 export function isValidLang(lang) {
     return AVAILABLE_LANGS.includes(lang);
+}
+
+function normalizeFetchErrorMessage(error) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+        return 'Request timed out while fetching asset.';
+    }
+
+    return String(error?.message || error);
+}
+
+function responseDiagnostic(response) {
+    const size = response.headers.get('content-length');
+    const type = response.headers.get('content-type');
+    const ranges = response.headers.get('accept-ranges');
+    const parts = [`${response.status} ${response.statusText}`.trim()];
+
+    if (size) {
+        parts.push(`${size} bytes`);
+    }
+    if (type) {
+        parts.push(type);
+    }
+    if (ranges) {
+        parts.push(`ranges=${ranges}`);
+    }
+
+    return parts.join(', ');
+}
+
+export function getWebFetchDiagnostics() {
+    return webFetchDiagnostics.slice();
+}
+
+async function fetchWithTimeout(url, timeoutMs = ASSET_FETCH_TIMEOUT_MS, options = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+        controller.abort(new DOMException('Request timed out.', 'TimeoutError'));
+    }, timeoutMs);
+
+    try {
+        return await fetch(url, {
+            ...options,
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function fetchWithRetry(url, options = {}, retries = ASSET_FETCH_RETRIES, timeoutMs = ASSET_FETCH_TIMEOUT_MS) {
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        const startedAt = Date.now();
+        try {
+            const response = await fetchWithTimeout(url, timeoutMs, options);
+            recordWebFetchDiagnostic({
+                event: 'fetch-success',
+                url,
+                attempt: attempt + 1,
+                durationMs: Date.now() - startedAt,
+                options,
+            });
+            return response;
+        } catch (error) {
+            lastError = error;
+            recordWebFetchDiagnostic({
+                event: 'fetch-failed',
+                url,
+                attempt: attempt + 1,
+                durationMs: Date.now() - startedAt,
+                error: normalizeFetchErrorMessage(error),
+            });
+
+            if (attempt < retries) {
+                await sleep(150 * (attempt + 1));
+            }
+        }
+    }
+
+    const wrappedError = new Error(`Failed to fetch ${url}: ${normalizeFetchErrorMessage(lastError)}`);
+    wrappedError.fetchDiagnostics = {
+        url,
+        options,
+        retries,
+        error: normalizeFetchErrorMessage(lastError),
+    };
+    throw wrappedError;
+}
+
+async function diagnoseAssetReachability(url) {
+    const attempts = [];
+
+    async function attempt(label, options) {
+        try {
+            const response = await fetchWithTimeout(url, ASSET_FETCH_TIMEOUT_MS, {
+                cache: 'no-store',
+                ...options,
+            });
+            const diagnostic = responseDiagnostic(response);
+            attempts.push(`${label}: ${diagnostic}`);
+            return { response, diagnostic };
+        } catch (error) {
+            const diagnostic = normalizeFetchErrorMessage(error);
+            attempts.push(`${label}: ${diagnostic}`);
+            return { error, diagnostic };
+        }
+    }
+
+    const head = await attempt('HEAD', { method: 'HEAD', mode: 'cors' });
+    if (head.response?.ok) {
+        return {
+            reachable: true,
+            attempts,
+            diagnostic: `Reachable: ${head.diagnostic}`,
+        };
+    }
+
+    if (head.response && ![405, 501].includes(head.response.status)) {
+        return {
+            reachable: false,
+            attempts,
+            diagnostic: `Not reachable: ${head.diagnostic}`,
+        };
+    }
+
+    const ranged = await attempt('GET bytes=0-0', {
+        method: 'GET',
+        mode: 'cors',
+        headers: {
+            Range: 'bytes=0-0',
+        },
+    });
+
+    return {
+        reachable: Boolean(ranged.response?.ok),
+        attempts,
+        diagnostic: ranged.response?.ok
+            ? `Reachable: ${ranged.diagnostic}`
+            : `Not reachable: ${ranged.diagnostic}`,
+    };
 }
 
 /**
@@ -157,6 +323,15 @@ export class TextToSpeech {
         this.vectorEstOrt = vectorEstOrt;
         this.vocoderOrt = vocoderOrt;
         this.sampleRate = cfgs.ae.sample_rate;
+    }
+
+    async dispose() {
+        const sessions = [this.dpOrt, this.textEncOrt, this.vectorEstOrt, this.vocoderOrt];
+        this.dpOrt = null;
+        this.textEncOrt = null;
+        this.vectorEstOrt = null;
+        this.vocoderOrt = null;
+        await Promise.allSettled(sessions.map((session) => session?.release?.()));
     }
 
     async _infer(textList, langList, style, totalStep, speed = 1.05, progressCallback = null) {
@@ -376,7 +551,10 @@ export async function loadVoiceStyle(voiceStylePaths, verbose = false) {
     const bsz = voiceStylePaths.length;
     
     // Read first file to get dimensions
-    const firstResponse = await fetch(voiceStylePaths[0]);
+    const firstResponse = await fetchWithRetry(voiceStylePaths[0], { mode: 'cors' });
+    if (!firstResponse.ok) {
+        throw new Error(`Could not load ${voiceStylePaths[0]}: ${firstResponse.status} ${firstResponse.statusText}`.trim());
+    }
     const firstStyle = await firstResponse.json();
     
     const ttlDims = firstStyle.style_ttl.dims;
@@ -395,7 +573,10 @@ export async function loadVoiceStyle(voiceStylePaths, verbose = false) {
     
     // Fill in the data
     for (let i = 0; i < bsz; i++) {
-        const response = await fetch(voiceStylePaths[i]);
+        const response = await fetchWithRetry(voiceStylePaths[i], { mode: 'cors' });
+        if (!response.ok) {
+            throw new Error(`Could not load ${voiceStylePaths[i]}: ${response.status} ${response.statusText}`.trim());
+        }
         const voiceStyle = await response.json();
         
         // Flatten TTL data
@@ -426,7 +607,10 @@ export async function loadVoiceStyle(voiceStylePaths, verbose = false) {
  * Load configuration from JSON
  */
 export async function loadCfgs(onnxDir) {
-    const response = await fetch(`${onnxDir}/tts.json`);
+    const response = await fetchWithRetry(`${onnxDir}/tts.json`, { mode: 'cors' });
+    if (!response.ok) {
+        throw new Error(`Could not load ${onnxDir}/tts.json: ${response.status} ${response.statusText}`.trim());
+    }
     const cfgs = await response.json();
     return cfgs;
 }
@@ -435,7 +619,10 @@ export async function loadCfgs(onnxDir) {
  * Load text processor
  */
 export async function loadTextProcessor(onnxDir) {
-    const response = await fetch(`${onnxDir}/unicode_indexer.json`);
+    const response = await fetchWithRetry(`${onnxDir}/unicode_indexer.json`, { mode: 'cors' });
+    if (!response.ok) {
+        throw new Error(`Could not load ${onnxDir}/unicode_indexer.json: ${response.status} ${response.statusText}`.trim());
+    }
     const indexer = await response.json();
     return new UnicodeProcessor(indexer);
 }
@@ -444,14 +631,36 @@ export async function loadTextProcessor(onnxDir) {
  * Load ONNX model
  */
 export async function loadOnnx(onnxPath, options) {
-    const session = await ort.InferenceSession.create(onnxPath, options);
-    return session;
+    try {
+        const session = await ort.InferenceSession.create(onnxPath, options);
+        return session;
+    } catch (error) {
+        const diagnostic = await diagnoseAssetReachability(onnxPath);
+        const wrappedError = new Error(`Could not create ONNX session for ${onnxPath}. ${diagnostic.diagnostic}. ${error?.message || error}`.trim());
+        wrappedError.cause = error;
+        wrappedError.fetchDiagnostics = {
+            url: onnxPath,
+            attempts: diagnostic.attempts,
+        };
+        throw wrappedError;
+    }
+}
+
+export class LoadCancelledError extends Error {
+    constructor() {
+        super('Model load cancelled.');
+        this.name = 'LoadCancelledError';
+    }
+}
+
+async function releaseSessions(sessions) {
+    await Promise.allSettled(sessions.map((session) => session?.release?.()));
 }
 
 /**
  * Load all TTS components
  */
-export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCallback = null) {
+export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCallback = null, shouldContinue = () => true) {
     console.log('Using WebAssembly/WebGPU for inference');
     
     const cfgs = await loadCfgs(onnxDir);
@@ -469,20 +678,37 @@ export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCal
     ];
     
     const sessions = [];
-    for (let i = 0; i < modelPaths.length; i++) {
-        if (progressCallback) {
-            progressCallback(modelPaths[i].name, i + 1, modelPaths.length);
+    try {
+        for (let i = 0; i < modelPaths.length; i++) {
+            if (!shouldContinue()) {
+                throw new LoadCancelledError();
+            }
+
+            if (progressCallback) {
+                progressCallback(modelPaths[i].name, i + 1, modelPaths.length);
+            }
+            const session = await loadOnnx(modelPaths[i].path, sessionOptions);
+            sessions.push(session);
+
+            if (!shouldContinue()) {
+                throw new LoadCancelledError();
+            }
         }
-        const session = await loadOnnx(modelPaths[i].path, sessionOptions);
-        sessions.push(session);
+
+        const [dpOrt, textEncOrt, vectorEstOrt, vocoderOrt] = sessions;
+
+        const textProcessor = await loadTextProcessor(onnxDir);
+        if (!shouldContinue()) {
+            throw new LoadCancelledError();
+        }
+
+        const textToSpeech = new TextToSpeech(cfgs, textProcessor, dpOrt, textEncOrt, vectorEstOrt, vocoderOrt);
+
+        return { textToSpeech, cfgs };
+    } catch (error) {
+        await releaseSessions(sessions);
+        throw error;
     }
-    
-    const [dpOrt, textEncOrt, vectorEstOrt, vocoderOrt] = sessions;
-    
-    const textProcessor = await loadTextProcessor(onnxDir);
-    const textToSpeech = new TextToSpeech(cfgs, textProcessor, dpOrt, textEncOrt, vectorEstOrt, vocoderOrt);
-    
-    return { textToSpeech, cfgs };
 }
 
 /**

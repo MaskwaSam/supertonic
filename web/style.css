@@ -2,9 +2,14 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 body {
     margin: 0;
     min-height: 100vh;
+    min-height: 100dvh;
     background: #f4f6f8;
     color: #1f2933;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -36,7 +41,7 @@ textarea {
 
 h1 {
     margin: 0;
-    font-size: clamp(1.55rem, 2.4vw, 2.2rem);
+    font-size: 2rem;
     line-height: 1.1;
     letter-spacing: 0;
 }
@@ -47,7 +52,49 @@ h1 {
     font-size: 0.98rem;
 }
 
-.backend-badge {
+.badge-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.header-link {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 12px;
+    border: 1px solid #cbd5df;
+    border-radius: 8px;
+    background: #fff;
+    color: #245f9f;
+    font-size: 0.88rem;
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.header-link:hover {
+    border-color: #8999a8;
+    background: #f7fafc;
+}
+
+.settings-menu {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.backend-badge,
+.source-badge {
     visibility: hidden;
     min-width: 118px;
     padding: 8px 12px;
@@ -59,12 +106,30 @@ h1 {
     text-align: center;
 }
 
-.backend-badge.visible {
+.source-badge {
+    min-width: 140px;
+    background: #465a69;
+}
+
+.backend-badge.visible,
+.source-badge.visible {
     visibility: visible;
 }
 
 .backend-badge.webgpu {
     background: #287d5a;
+}
+
+.source-badge.cdn {
+    background: #245f9f;
+}
+
+.source-badge.bundled {
+    background: #8a5a21;
+}
+
+.source-badge.error {
+    background: #b33a30;
 }
 
 .status-box {
@@ -78,6 +143,19 @@ h1 {
     background: #edf6ff;
     color: #174f8a;
     font-size: 0.94rem;
+}
+
+.status-phase {
+    display: inline-flex;
+    min-width: 78px;
+    margin-right: 10px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(47, 128, 237, 0.12);
+    color: inherit;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
 }
 
 .status-box.success {
@@ -156,6 +234,18 @@ select {
     padding: 9px 10px;
 }
 
+.readonly-setting {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    padding: 9px 10px;
+    border: 1px solid #cbd5df;
+    border-radius: 8px;
+    background: #f7fafc;
+    color: #26323f;
+    font-weight: 700;
+}
+
 textarea {
     min-height: 280px;
     max-height: 48vh;
@@ -219,6 +309,138 @@ button.primary {
 button.primary:hover:not(:disabled) {
     border-color: #174f8a;
     background: #174f8a;
+}
+
+.icon-button {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.icon-button svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.settings-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 20;
+    width: min(320px, calc(100vw - 48px));
+    padding: 12px;
+    border: 1px solid #cbd5df;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 12px 30px rgba(31, 41, 51, 0.16);
+}
+
+.setting-row {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    color: #26323f;
+}
+
+.setting-row input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+}
+
+.settings-panel[hidden] {
+    display: none;
+}
+
+.sticky-controls {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 40;
+    display: none;
+    align-items: center;
+    gap: 10px;
+}
+
+.sticky-controls.visible {
+    display: flex;
+}
+
+.sticky-button {
+    width: 54px;
+    min-width: 54px;
+    height: 54px;
+    min-height: 54px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-color: #245f9f;
+    border-radius: 999px;
+    background: #245f9f;
+    color: #fff;
+    box-shadow: 0 10px 24px rgba(31, 41, 51, 0.22);
+}
+
+.sticky-button:hover:not(:disabled) {
+    border-color: #174f8a;
+    background: #174f8a;
+}
+
+.sticky-button:disabled {
+    border-color: #cbd5df;
+    background: #fff;
+    color: #7b8794;
+    box-shadow: 0 8px 18px rgba(31, 41, 51, 0.12);
+}
+
+.sticky-button svg {
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.sticky-button svg polygon,
+.sticky-button svg rect {
+    fill: currentColor;
+    stroke-width: 0;
+}
+
+.mobile-note {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid #d9e2ec;
+    border-left: 4px solid #d86f27;
+    border-radius: 8px;
+    background: #fffaf5;
+    color: #4e3b27;
+    line-height: 1.35;
+}
+
+.mobile-note strong {
+    font-size: 0.84rem;
+}
+
+.mobile-note span {
+    font-size: 0.9rem;
 }
 
 .error {
@@ -289,7 +511,7 @@ button.primary:hover:not(:disabled) {
     padding: 22px;
     background: #fff;
     line-height: 1.75;
-    font-size: clamp(1rem, 1.2vw, 1.12rem);
+    font-size: 1.06rem;
 }
 
 .reader-empty {
@@ -304,9 +526,19 @@ button.primary:hover:not(:disabled) {
     border-left: 4px solid transparent;
     border-radius: 8px;
     color: #26323f;
+    cursor: pointer;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+    transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
+.reader-chunk:hover {
+    background: #f4f8fb;
+}
+
+.reader-chunk:focus-visible {
+    outline: 3px solid rgba(36, 95, 159, 0.28);
+    outline-offset: 2px;
 }
 
 .reader-chunk.complete {
@@ -314,10 +546,24 @@ button.primary:hover:not(:disabled) {
     background: #f7fafc;
 }
 
+.reader-chunk.generated {
+    box-shadow: inset 0 0 0 1px #c9d8e8;
+}
+
 .reader-chunk.active {
     border-left-color: #d86f27;
     background: #fff4ec;
     color: #1f2933;
+}
+
+.reader-word {
+    border-radius: 4px;
+    transition: background 120ms ease, color 120ms ease;
+}
+
+.reader-word.active-word {
+    background: #245f9f;
+    color: #fff;
 }
 
 @media (max-width: 1080px) {
@@ -340,6 +586,8 @@ button.primary:hover:not(:disabled) {
         width: min(100vw - 20px, 1480px);
         margin: 10px auto;
         min-height: calc(100vh - 20px);
+        min-height: calc(100dvh - 20px);
+        padding-bottom: max(86px, calc(74px + env(safe-area-inset-bottom)));
     }
 
     .app-header {
@@ -347,19 +595,80 @@ button.primary:hover:not(:disabled) {
         flex-direction: column;
     }
 
-    .backend-badge {
+    h1 {
+        font-size: 1.55rem;
+    }
+
+    .header-actions {
         width: 100%;
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .badge-row,
+    .backend-badge,
+    .source-badge {
+        width: 100%;
+    }
+
+    .settings-menu {
+        margin-left: auto;
+    }
+
+    .header-link {
+        min-height: 44px;
+        flex: 1 1 170px;
+    }
+
+    .icon-button {
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        min-height: 44px;
+    }
+
+    input[type="file"],
+    input[type="number"],
+    select,
+    textarea {
+        font-size: 16px;
     }
 
     .field-grid,
     .button-row,
-    .reader-toolbar,
-    .stats-grid {
+    .reader-toolbar {
         grid-template-columns: 1fr;
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .reader {
         padding: 14px;
-        min-height: 420px;
+        min-height: min(420px, 58vh);
+        min-height: min(420px, 58dvh);
+    }
+
+    .sticky-controls {
+        right: 10px;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        left: 10px;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px;
+        border: 1px solid #d9e2ec;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: 0 10px 24px rgba(31, 41, 51, 0.18);
+        backdrop-filter: blur(8px);
+    }
+
+    .sticky-button {
+        width: 48px;
+        min-width: 48px;
+        height: 48px;
+        min-height: 48px;
+        box-shadow: none;
     }
 }

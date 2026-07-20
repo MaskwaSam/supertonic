@@ -5,16 +5,17 @@ import { defineConfig } from 'vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootAssetsDir = path.resolve(__dirname, '../assets');
+const supertonicOnnxRuntimeDistDir = path.resolve(__dirname, 'node_modules/onnxruntime-web/dist');
 
-function serveRootAssets() {
+function serveFiles(route, sourceDir) {
   return {
-    name: 'serve-root-assets',
+    name: `serve-${route.replace(/\W+/g, '-')}`,
     configureServer(server) {
-      server.middlewares.use('/assets', (req, res, next) => {
+      server.middlewares.use(route, (req, res, next) => {
         const urlPath = decodeURIComponent((req.url || '').split('?')[0]);
-        const filePath = path.resolve(rootAssetsDir, `.${urlPath}`);
+        const filePath = path.resolve(sourceDir, `.${urlPath}`);
 
-        if (!filePath.startsWith(rootAssetsDir) || !existsSync(filePath)) {
+        if (!filePath.startsWith(sourceDir) || !existsSync(filePath)) {
           next();
           return;
         }
@@ -25,7 +26,45 @@ function serveRootAssets() {
           return;
         }
 
+        const extension = path.extname(filePath);
+        const contentTypes = {
+          '.json': 'application/json',
+          '.mjs': 'text/javascript',
+          '.onnx': 'application/octet-stream',
+          '.wasm': 'application/wasm'
+        };
+        if (contentTypes[extension]) {
+          res.setHeader('Content-Type', contentTypes[extension]);
+        }
+
         createReadStream(filePath).pipe(res);
+      });
+    }
+  };
+}
+
+function serviceWorkerManifest() {
+  return {
+    name: 'supertonic-service-worker-manifest',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const files = new Set(['./', './index.html', './voices.html']);
+
+      for (const output of Object.values(bundle)) {
+        if (!output.fileName || output.fileName === 'sw.js') {
+          continue;
+        }
+        if (!/\.(?:js|css|html|svg|png|jpe?g|webp|ico|woff2?)$/i.test(output.fileName)) {
+          continue;
+        }
+
+        files.add(`./${output.fileName}`);
+      }
+
+      this.emitFile({
+        type: 'asset',
+        fileName: 'app-shell-manifest.json',
+        source: `${JSON.stringify({ files: [...files].sort() }, null, 2)}\n`
       });
     }
   };
@@ -33,13 +72,23 @@ function serveRootAssets() {
 
 export default defineConfig({
   base: './',
-  plugins: [serveRootAssets()],
+  plugins: [
+    serveFiles('/assets', rootAssetsDir),
+    serveFiles('/onnx-runtime', supertonicOnnxRuntimeDistDir),
+    serviceWorkerManifest()
+  ],
   server: {
     port: 3000,
     open: false
   },
   build: {
-    target: 'esnext'
+    target: 'esnext',
+    rollupOptions: {
+      input: {
+        index: path.resolve(__dirname, 'index.html'),
+        voices: path.resolve(__dirname, 'voices.html')
+      }
+    }
   },
   optimizeDeps: {
     exclude: ['onnxruntime-web']
