@@ -28,6 +28,8 @@ let activeVoiceId = null;
 let busy = false;
 let sourceToken = 0;
 let sequenceToken = 0;
+let generationToken = 0;
+let bulkGenerationActive = false;
 let modelSourceLabel = '';
 
 const styleCache = new Map();
@@ -83,12 +85,16 @@ function setBusy(nextBusy) {
     }
 }
 
+function updateStopButton() {
+    stopButton.disabled = !activeVoiceId && !bulkGenerationActive;
+}
+
 function setActiveVoice(voiceId) {
     activeVoiceId = voiceId;
     for (const [id, card] of cardByVoiceId.entries()) {
         card.element.classList.toggle('active', id === voiceId);
     }
-    stopButton.disabled = !voiceId;
+    updateStopButton();
 }
 
 function clearAudioCache() {
@@ -190,7 +196,19 @@ async function voiceStyle(voice) {
     return styleCache.get(voice.id);
 }
 
-async function generateVoice(voice) {
+function generationAbortError() {
+    const error = new Error('Generation stopped.');
+    error.name = 'AbortError';
+    return error;
+}
+
+function assertCurrentGeneration(token) {
+    if (token !== generationToken) {
+        throw generationAbortError();
+    }
+}
+
+async function generateVoice(voice, token = generationToken) {
     const signature = currentSignature();
     const cached = audioCache.get(voice.id);
     if (cached?.signature === signature) {
@@ -203,7 +221,9 @@ async function generateVoice(voice) {
     }
 
     await ensureModel();
+    assertCurrentGeneration(token);
     const style = await voiceStyle(voice);
+    assertCurrentGeneration(token);
     const card = cardByVoiceId.get(voice.id);
     card.state.textContent = `Generating ${voice.label}...`;
     setStatus(`Generating ${voice.label} with ${getSteps()} steps...`);
@@ -214,8 +234,13 @@ async function generateVoice(voice) {
         style,
         getSteps(),
         getSpeed(),
-        (step, total) => setStatus(`${voice.label}: denoising ${step}/${total}`)
+        (step, total) => {
+            if (token === generationToken) {
+                setStatus(`${voice.label}: denoising ${step}/${total}`);
+            }
+        }
     );
+    assertCurrentGeneration(token);
     const buffer = audioContext.createBuffer(1, result.wav.length, textToSpeech.sampleRate);
     buffer.copyToChannel(result.wav, 0);
     const audio = {
@@ -247,7 +272,10 @@ function stopActiveSource() {
 
 function stopPlayback() {
     sequenceToken += 1;
+    generationToken += 1;
+    bulkGenerationActive = false;
     stopActiveSource();
+    updateStopButton();
 }
 
 function playAudio(audio) {
@@ -271,11 +299,14 @@ function playAudio(audio) {
 }
 
 async function playVoice(voice) {
+    const token = ++generationToken;
     try {
         sequenceToken += 1;
         await ensureAudioContext();
+        assertCurrentGeneration(token);
         setBusy(true);
-        const audio = await generateVoice(voice);
+        const audio = await generateVoice(voice, token);
+        assertCurrentGeneration(token);
         setBusy(false);
         setStatus(`Playing ${voice.label}.`);
         const completed = await playAudio(audio);
@@ -285,23 +316,47 @@ async function playVoice(voice) {
     } catch (error) {
         setBusy(false);
         stopPlayback();
-        setStatus(error.message, 'error');
+        if (error.name === 'AbortError') {
+            setStatus('Stopped.');
+        } else {
+            setStatus(error.message, 'error');
+        }
     }
 }
 
 async function generateAllVoices() {
+    const token = ++generationToken;
+    stopActiveSource();
+    bulkGenerationActive = true;
     try {
         await ensureAudioContext();
         setBusy(true);
+        updateStopButton();
         for (const voice of voices) {
-            await generateVoice(voice);
+            if (token !== generationToken) {
+                break;
+            }
+            await generateVoice(voice, token);
+            if (token !== generationToken) {
+                break;
+            }
             await new Promise((resolve) => setTimeout(resolve, 0));
         }
-        setStatus('All 10 voice previews are generated.', 'success');
+        if (token === generationToken) {
+            setStatus('All 10 voice previews are generated.', 'success');
+        } else {
+            setStatus('Stopped.');
+        }
     } catch (error) {
-        setStatus(error.message, 'error');
+        if (token === generationToken) {
+            setStatus(error.message, 'error');
+        }
     } finally {
+        if (token === generationToken) {
+            bulkGenerationActive = false;
+        }
         setBusy(false);
+        updateStopButton();
     }
 }
 

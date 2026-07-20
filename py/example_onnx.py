@@ -83,10 +83,19 @@ text_list = args.text
 lang_list = args.lang
 batch = args.batch
 
-assert len(voice_style_paths) == len(
-    text_list
-), f"Number of voice styles ({len(voice_style_paths)}) must match number of texts ({len(text_list)})"
-bsz = len(voice_style_paths)
+if batch:
+    if len(voice_style_paths) != len(text_list):
+        raise ValueError(
+            f"Number of voice styles ({len(voice_style_paths)}) must match number of texts ({len(text_list)})"
+        )
+    if len(lang_list) != len(text_list):
+        raise ValueError(
+            f"Number of languages ({len(lang_list)}) must match number of texts ({len(text_list)})"
+        )
+else:
+    if len(voice_style_paths) != 1 or len(text_list) != 1 or len(lang_list) != 1:
+        raise ValueError("Multiple voice styles, texts, or languages require --batch")
+bsz = len(voice_style_paths) if batch else 1
 
 # --- 2. Load Text to Speech --- #
 text_to_speech = load_text_to_speech(args.onnx_dir, args.use_gpu)

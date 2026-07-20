@@ -17,7 +17,7 @@ targets:
     resources:
       - path: onnx
         type: folder
-      - path: audio
+      - path: voice_styles
         type: folder
     settings:
       base:

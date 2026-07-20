@@ -38,7 +38,7 @@ node example_onnx.js
 
 Or:
 ```bash
-node example_onnx.js
+npm start
 ```
 
 This will use:

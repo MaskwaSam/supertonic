@@ -288,20 +288,20 @@ func splitSentences(text string) []string {
 	// Go's regexp doesn't support lookbehind, so we use a simpler approach
 	// Split on sentence boundaries and then check if they're abbreviations
 	re := regexp.MustCompile(`([.!?])\s+`)
-	
+
 	// Find all matches
 	matches := re.FindAllStringIndex(text, -1)
 	if len(matches) == 0 {
 		return []string{text}
 	}
-	
+
 	var sentences []string
 	lastEnd := 0
-	
+
 	for _, match := range matches {
 		// Get the text before the punctuation
 		beforePunc := text[lastEnd:match[0]]
-		
+
 		// Check if this ends with an abbreviation
 		isAbbrev := false
 		for _, abbrev := range abbreviations {
@@ -310,23 +310,23 @@ func splitSentences(text string) []string {
 				break
 			}
 		}
-		
+
 		if !isAbbrev {
 			// This is a real sentence boundary
 			sentences = append(sentences, text[lastEnd:match[1]])
 			lastEnd = match[1]
 		}
 	}
-	
+
 	// Add the remaining text
 	if lastEnd < len(text) {
 		sentences = append(sentences, text[lastEnd:])
 	}
-	
+
 	if len(sentences) == 0 {
 		return []string{text}
 	}
-	
+
 	return sentences
 }
 
@@ -352,23 +352,23 @@ func preprocessText(text string, lang string) string {
 
 	// Replace various dashes and symbols
 	replacements := map[string]string{
-		"–": "-",    // en dash
-		"‑": "-",    // non-breaking hyphen
-		"—": "-",    // em dash
-		"_": " ",    // underscore
-		"\u201C": "\"",   // left double quote
-		"\u201D": "\"",   // right double quote
-		"\u2018": "'",    // left single quote
-		"\u2019": "'",    // right single quote
-		"´": "'",    // acute accent
-		"`": "'",    // grave accent
-		"[": " ",    // left bracket
-		"]": " ",    // right bracket
-		"|": " ",    // vertical bar
-		"/": " ",    // slash
-		"#": " ",    // hash
-		"→": " ",    // right arrow
-		"←": " ",    // left arrow
+		"–":      "-",  // en dash
+		"‑":      "-",  // non-breaking hyphen
+		"—":      "-",  // em dash
+		"_":      " ",  // underscore
+		"\u201C": "\"", // left double quote
+		"\u201D": "\"", // right double quote
+		"\u2018": "'",  // left single quote
+		"\u2019": "'",  // right single quote
+		"´":      "'",  // acute accent
+		"`":      "'",  // grave accent
+		"[":      " ",  // left bracket
+		"]":      " ",  // right bracket
+		"|":      " ",  // vertical bar
+		"/":      " ",  // slash
+		"#":      " ",  // hash
+		"→":      " ",  // right arrow
+		"←":      " ",  // left arrow
 	}
 
 	for old, new := range replacements {
@@ -700,7 +700,7 @@ func (tts *TextToSpeech) _infer(textList []string, langList []string, style *Sty
 	durTensor := dpOutputs[0].(*ort.Tensor[float32])
 	defer durTensor.Destroy()
 	durOnnx := durTensor.GetData()
-	
+
 	// Apply speed factor to duration
 	for i := range durOnnx {
 		durOnnx[i] /= speed
@@ -805,7 +805,7 @@ func (tts *TextToSpeech) Call(text string, lang string, style *Style, totalStep 
 		maxLen = 120
 	}
 	chunks := chunkText(text, maxLen)
-	
+
 	var wavCat []float32
 	var durCat float32
 
@@ -817,6 +817,12 @@ func (tts *TextToSpeech) Call(text string, lang string, style *Style, totalStep 
 
 		dur := duration[0]
 		wavLen := int(float32(tts.SampleRate) * dur)
+		if wavLen < 0 {
+			wavLen = 0
+		}
+		if wavLen > len(wav) {
+			wavLen = len(wav)
+		}
 		wavChunk := wav[:wavLen]
 
 		if i == 0 {
@@ -825,7 +831,7 @@ func (tts *TextToSpeech) Call(text string, lang string, style *Style, totalStep 
 		} else {
 			silenceLen := int(silenceDuration * float32(tts.SampleRate))
 			silence := make([]float32, silenceLen)
-			
+
 			wavCat = append(wavCat, silence...)
 			wavCat = append(wavCat, wavChunk...)
 			durCat += silenceDuration + dur
@@ -860,7 +866,8 @@ func LoadTextToSpeech(onnxDir string, useGPU bool, cfg Config) (*TextToSpeech, e
 	if useGPU {
 		return nil, fmt.Errorf("GPU mode is not supported yet")
 	}
-	fmt.Println("Using CPU for inference\n")
+	fmt.Println("Using CPU for inference")
+	fmt.Println()
 
 	// Load models
 	dpPath := filepath.Join(onnxDir, "duration_predictor.onnx")
@@ -952,7 +959,7 @@ func sanitizeFilename(text string, maxLen int) string {
 	if len(runes) > maxLen {
 		runes = runes[:maxLen]
 	}
-	
+
 	result := make([]rune, 0, len(runes))
 	for _, r := range runes {
 		// unicode.IsLetter matches any Unicode letter, unicode.IsDigit matches any Unicode digit
@@ -967,20 +974,34 @@ func sanitizeFilename(text string, maxLen int) string {
 
 // extractWavSegment extracts a single audio segment from batch output
 func extractWavSegment(wav []float32, duration float32, sampleRate int, index int, batchSize int) []float64 {
+	if batchSize <= 0 || index < 0 || index >= batchSize {
+		return []float64{}
+	}
+
 	wavLen := int(float64(sampleRate) * float64(duration))
+	if wavLen < 0 {
+		wavLen = 0
+	}
 	wavPerBatch := len(wav) / batchSize
-	
+
 	wavStart := index * wavPerBatch
 	wavEnd := wavStart + wavLen
-	if wavEnd > len(wav) {
-		wavEnd = len(wav)
+	batchEnd := wavStart + wavPerBatch
+	if batchEnd > len(wav) {
+		batchEnd = len(wav)
 	}
-	
-	wavOut := make([]float64, wavLen)
-	for j := 0; j < wavLen && wavStart+j < len(wav); j++ {
+	if wavEnd > batchEnd {
+		wavEnd = batchEnd
+	}
+	if wavStart >= wavEnd {
+		return []float64{}
+	}
+
+	wavOut := make([]float64, wavEnd-wavStart)
+	for j := 0; j < len(wavOut); j++ {
 		wavOut[j] = float64(wav[wavStart+j])
 	}
-	
+
 	return wavOut
 }
 

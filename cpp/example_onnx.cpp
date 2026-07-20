@@ -62,13 +62,23 @@ int main(int argc, char* argv[]) {
     std::vector<std::string> text_list = args.text;
     std::vector<std::string> lang_list = args.lang;
     bool batch = args.batch;
-    
-    if (voice_style_paths.size() != text_list.size()) {
-        std::cerr << "Error: Number of voice styles (" << voice_style_paths.size() 
-                  << ") must match number of texts (" << text_list.size() << ")\n";
+
+    if (batch) {
+        if (voice_style_paths.size() != text_list.size()) {
+            std::cerr << "Error: Number of voice styles (" << voice_style_paths.size()
+                      << ") must match number of texts (" << text_list.size() << ")\n";
+            return 1;
+        }
+        if (lang_list.size() != text_list.size()) {
+            std::cerr << "Error: Number of languages (" << lang_list.size()
+                      << ") must match number of texts (" << text_list.size() << ")\n";
+            return 1;
+        }
+    } else if (voice_style_paths.size() != 1 || text_list.size() != 1 || lang_list.size() != 1) {
+        std::cerr << "Error: multiple voice styles, texts, or languages require --batch\n";
         return 1;
     }
-    int bsz = voice_style_paths.size();
+    int bsz = batch ? static_cast<int>(voice_style_paths.size()) : 1;
     
     // --- 2. Load Text to Speech --- //
     Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "TTS");
@@ -101,11 +111,15 @@ int main(int argc, char* argv[]) {
         
         for (int b = 0; b < bsz; b++) {
             std::string fname = sanitizeFilename(text_list[b], 20) + "_" + std::to_string(n + 1) + ".wav";
-            int wav_len = static_cast<int>(sample_rate * result.duration[b]);
+            int wav_len = std::max(0, std::min(
+                static_cast<int>(sample_rate * result.duration[b]),
+                wav_shape_1
+            ));
+            auto wav_start = result.wav.begin() + b * wav_shape_1;
             
             std::vector<float> wav_out(
-                result.wav.begin() + b * wav_shape_1,
-                result.wav.begin() + b * wav_shape_1 + wav_len
+                wav_start,
+                wav_start + wav_len
             );
             
             std::string output_path = save_dir + "/" + fname;

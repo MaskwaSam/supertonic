@@ -141,6 +141,5 @@ This will:
 - **Automatic Chunking**: Without `--batch`, long texts are automatically split and concatenated with 0.3s pauses
 - **Quality vs Speed**: Higher `--total-step` values produce better quality but take longer
 - **GPU Support**: GPU mode is not supported yet
-- **Known Issues**: On some platforms (especially macOS), there might be a mutex cleanup warning during exit. This is a known ONNX Runtime issue and doesn't affect functionality. The implementation uses `libc::_exit()` and `mem::forget()` to bypass this issue.
-
+- **Process Exit**: The example exits normally after synthesis so stdout, logs, and destructors can flush under test runners and wrappers.
 

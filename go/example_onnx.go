@@ -12,16 +12,16 @@ import (
 
 // Args holds command line arguments
 type Args struct {
-	useGPU      bool
-	onnxDir     string
-	totalStep   int
-	speed       float64
-	nTest       int
-	voiceStyle  []string
-	text        []string
-	lang        []string
-	saveDir     string
-	batch       bool
+	useGPU     bool
+	onnxDir    string
+	totalStep  int
+	speed      float64
+	nTest      int
+	voiceStyle []string
+	text       []string
+	lang       []string
+	saveDir    string
+	batch      bool
 }
 
 func parseArgs() *Args {
@@ -70,7 +70,8 @@ func parseArgs() *Args {
 }
 
 func main() {
-	fmt.Println("=== TTS Inference with ONNX Runtime (Go) ===\n")
+	fmt.Println("=== TTS Inference with ONNX Runtime (Go) ===")
+	fmt.Println()
 
 	// --- 1. Parse arguments --- //
 	args := parseArgs()
@@ -94,9 +95,15 @@ func main() {
 				len(langList), len(textList))
 			os.Exit(1)
 		}
+	} else if len(voiceStylePaths) != 1 || len(textList) != 1 || len(langList) != 1 {
+		fmt.Printf("Error: multiple voice styles, texts, or languages require --batch\n")
+		os.Exit(1)
 	}
 
-	bsz := len(voiceStylePaths)
+	bsz := 1
+	if batch {
+		bsz = len(voiceStylePaths)
+	}
 
 	// Initialize ONNX Runtime
 	if err := InitializeONNXRuntime(); err != nil {
@@ -168,7 +175,7 @@ func main() {
 		for i := 0; i < bsz; i++ {
 			fname := fmt.Sprintf("%s_%d.wav", sanitizeFilename(textList[i], 20), n+1)
 			var wavOut []float64
-			
+
 			if batch {
 				wavOut = extractWavSegment(wav, duration[i], textToSpeech.SampleRate, i, bsz)
 			} else {
@@ -179,7 +186,7 @@ func main() {
 					wavOut[j] = float64(wav[j])
 				}
 			}
-			
+
 			outputPath := filepath.Join(saveDir, fname)
 			if err := writeWavFile(outputPath, wavOut, textToSpeech.SampleRate); err != nil {
 				fmt.Printf("Error writing wav file: %v\n", err)

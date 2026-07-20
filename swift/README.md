@@ -29,6 +29,12 @@ This project uses Swift Package Manager (SPM) for dependency management.
 swift build -c release
 ```
 
+### Quick run
+```bash
+swift build -c release
+.build/release/example_onnx
+```
+
 ## Basic Usage
 
 ### Example 1: Default Inference

@@ -82,7 +82,7 @@ uv sync
 uv run example_onnx.py
 ```
 
-This generates `outputs/output.wav` using the default preset voice.
+This generates numbered WAV files in `py/results/` using the default preset voice. Use `--n-test 1` if you only want one output file.
 
 ### Other Runtime Examples
 
@@ -92,14 +92,14 @@ This generates `outputs/output.wav` using the default preset voice.
 **Node.js Example** ([Details](nodejs/))
 ```bash
 cd nodejs
-npm install
+npm ci
 npm start
 ```
 
 **Browser Example** ([Details](web/))
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
@@ -149,11 +149,25 @@ cargo build --release
 **iOS Example** ([Details](ios/))
 ```bash
 cd ios/ExampleiOSApp
+mkdir -p onnx voice_styles
+rsync -a ../../assets/onnx/ onnx/
+rsync -a ../../assets/voice_styles/ voice_styles/
 xcodegen generate
 open ExampleiOSApp.xcodeproj
 ```
 
 In Xcode: Targets → ExampleiOSApp → Signing: select your Team, then choose your iPhone as run destination and build.
+
+**Flutter Example** ([Details](flutter/))
+```bash
+cd flutter
+mkdir -p assets
+cp -R ../assets/onnx assets/
+cp -R ../assets/voice_styles assets/
+flutter config --enable-macos-desktop
+flutter pub get
+flutter run -d macos
+```
 
 </details>
 

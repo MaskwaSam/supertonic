@@ -83,12 +83,24 @@ namespace Supertonic
             var langList = parsedArgs.Lang;
             bool batch = parsedArgs.Batch;
 
-            if (voiceStylePaths.Count != textList.Count)
+            if (batch)
             {
-                throw new ArgumentException(
-                    $"Number of voice styles ({voiceStylePaths.Count}) must match number of texts ({textList.Count})");
+                if (voiceStylePaths.Count != textList.Count)
+                {
+                    throw new ArgumentException(
+                        $"Number of voice styles ({voiceStylePaths.Count}) must match number of texts ({textList.Count})");
+                }
+                if (langList.Count != textList.Count)
+                {
+                    throw new ArgumentException(
+                        $"Number of languages ({langList.Count}) must match number of texts ({textList.Count})");
+                }
             }
-            int bsz = voiceStylePaths.Count;
+            else if (voiceStylePaths.Count != 1 || textList.Count != 1 || langList.Count != 1)
+            {
+                throw new ArgumentException("Multiple voice styles, texts, or languages require --batch");
+            }
+            int bsz = batch ? voiceStylePaths.Count : 1;
 
             // --- 2. Load Text to Speech --- //
             var textToSpeech = Helper.LoadTextToSpeech(parsedArgs.OnnxDir, parsedArgs.UseGpu);
@@ -137,4 +149,3 @@ namespace Supertonic
         }
     }
 }
-

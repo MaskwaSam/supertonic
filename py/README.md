@@ -32,6 +32,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 ```
 
+`uv.lock` is the dependency source of truth for reproducible local runs.
+
 Or if you prefer using traditional pip with requirements.txt:
 ```bash
 pip install -r requirements.txt
@@ -142,4 +144,3 @@ This will:
 - **Long-Form Inference**: Without `--batch` flag, long texts are automatically chunked and combined into a single audio file with natural pauses
 - **Quality vs Speed**: Higher `--total-step` values produce better quality but take longer
 - **GPU Support**: GPU mode is not supported yet
-

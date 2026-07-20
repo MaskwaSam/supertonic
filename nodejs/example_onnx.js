@@ -69,10 +69,17 @@ async function main() {
     const langList = args.lang;
     const batch = args.batch;
 
-    if (voiceStylePaths.length !== textList.length) {
-        throw new Error(`Number of voice styles (${voiceStylePaths.length}) must match number of texts (${textList.length})`);
+    if (batch) {
+        if (voiceStylePaths.length !== textList.length) {
+            throw new Error(`Number of voice styles (${voiceStylePaths.length}) must match number of texts (${textList.length})`);
+        }
+        if (langList.length !== textList.length) {
+            throw new Error(`Number of languages (${langList.length}) must match number of texts (${textList.length})`);
+        }
+    } else if (voiceStylePaths.length !== 1 || textList.length !== 1 || langList.length !== 1) {
+        throw new Error('Multiple voice styles, texts, or languages require --batch');
     }
-    const bsz = voiceStylePaths.length;
+    const bsz = batch ? voiceStylePaths.length : 1;
 
     // --- 2. Load Text to Speech --- //
     const onnxDir = path.resolve(__dirname, args.onnxDir);

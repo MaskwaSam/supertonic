@@ -5,7 +5,8 @@
   "main": "example_onnx.js",
   "type": "module",
   "scripts": {
-    "start": "node example_onnx.js"
+    "start": "node example_onnx.js",
+    "test": "node --check example_onnx.js && node --check helper.js"
   },
   "keywords": [
     "tts",

@@ -448,10 +448,12 @@ namespace Supertonic
             foreach (var chunk in textList)
             {
                 var (wav, duration) = _Infer(new List<string> { chunk }, new List<string> { lang }, style, totalStep, speed);
+                int trimLength = Math.Min(wav.Length, (int)(SampleRate * duration[0]));
+                var trimmedWav = wav.Take(trimLength);
 
                 if (wavCat.Count == 0)
                 {
-                    wavCat.AddRange(wav);
+                    wavCat.AddRange(trimmedWav);
                     durCat = duration[0];
                 }
                 else
@@ -459,7 +461,7 @@ namespace Supertonic
                     int silenceLen = (int)(silenceDuration * SampleRate);
                     var silence = new float[silenceLen];
                     wavCat.AddRange(silence);
-                    wavCat.AddRange(wav);
+                    wavCat.AddRange(trimmedWav);
                     durCat += duration[0] + silenceDuration;
                 }
             }

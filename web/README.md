@@ -45,7 +45,7 @@ This pulls ONNX files and voice styles from `https://huggingface.co/Supertone/su
 ## Run
 
 ```bash
-npm install
+npm ci
 npm run assets:download
 npm run dev
 ```

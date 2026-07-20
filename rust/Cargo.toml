@@ -35,9 +35,6 @@ unicode-normalization = "0.1"
 # Regular expressions
 regex = "1.10"
 
-# System calls
-libc = "0.2"
-
 [[bin]]
 name = "example_onnx"
 path = "src/example_onnx.rs"

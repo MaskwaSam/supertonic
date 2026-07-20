@@ -38,6 +38,8 @@ rsync -a ../../assets/onnx/ onnx/
 rsync -a ../../assets/voice_styles/ voice_styles/
 ```
 
+Run these commands from `supertonic/ios/ExampleiOSApp` so the `onnx/` and `voice_styles/` folders match the resource paths in `project.yml`.
+
 1) Generate the Xcode project with XcodeGen
 ```bash
 xcodegen generate

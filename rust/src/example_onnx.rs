@@ -1,14 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
-use std::path::PathBuf;
 use std::fs;
-use std::mem;
+use std::path::PathBuf;
 
 mod helper;
 
-use helper::{
-    load_text_to_speech, load_voice_style, timer, write_wav_file, sanitize_filename,
-};
+use helper::{load_text_to_speech, load_voice_style, sanitize_filename, timer, write_wav_file};
 
 #[derive(Parser, Debug)]
 #[command(name = "TTS ONNX Inference")]
@@ -84,9 +81,11 @@ fn main() -> Result<()> {
                 text_list.len()
             );
         }
+    } else if voice_style_paths.len() != 1 || text_list.len() != 1 || lang_list.len() != 1 {
+        anyhow::bail!("multiple voice styles, texts, or languages require --batch");
     }
 
-    let bsz = voice_style_paths.len();
+    let bsz = if batch { voice_style_paths.len() } else { 1 };
 
     // --- 2. Load TTS components --- //
     let mut text_to_speech = load_text_to_speech(&args.onnx_dir, args.use_gpu)?;
@@ -133,12 +132,5 @@ fn main() -> Result<()> {
     }
 
     println!("\n=== Synthesis completed successfully! ===");
-    
-    // Prevent ONNX Runtime sessions from being dropped, which causes mutex cleanup issues
-    mem::forget(text_to_speech);
-    
-    // Use _exit to bypass all cleanup handlers and avoid ONNX Runtime mutex issues on macOS
-    unsafe {
-        libc::_exit(0);
-    }
+    Ok(())
 }

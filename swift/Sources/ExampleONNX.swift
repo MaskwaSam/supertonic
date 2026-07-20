@@ -94,9 +94,12 @@ struct ExampleONNX {
                 print("Error: Number of languages (\(args.lang.count)) must match number of texts (\(args.text.count))")
                 return
             }
+        } else if args.voiceStyle.count != 1 || args.text.count != 1 || args.lang.count != 1 {
+            print("Error: multiple voice styles, texts, or languages require --batch")
+            return
         }
         
-        let bsz = args.voiceStyle.count
+        let bsz = args.batch ? args.voiceStyle.count : 1
         
         do {
             let env = try ORTEnv(loggingLevel: .warning)

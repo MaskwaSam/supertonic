@@ -232,6 +232,11 @@ class TextToSpeech:
         dur_cat = None
         for text in text_list:
             wav, dur_onnx = self._infer([text], [lang], style, total_step, speed)
+            trim_len = min(
+                wav.shape[1],
+                int(self.sample_rate * float(dur_onnx[0])),
+            )
+            wav = wav[:, :trim_len]
             if wav_cat is None:
                 wav_cat = wav
                 dur_cat = dur_onnx

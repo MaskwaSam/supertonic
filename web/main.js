@@ -38,6 +38,12 @@ const DEFAULT_VOICE_STYLE_PATH = 'assets/voice_styles/M1.json';
 const CHUNK_SILENCE_SECONDS = 0.3;
 const START_LEAD_SECONDS = 0.08;
 const TTS_ENGINE_SUPERTONIC = 'supertonic';
+const TOTAL_STEP_MIN = 1;
+const TOTAL_STEP_MAX = 50;
+const TOTAL_STEP_DEFAULT = 8;
+const SPEED_MIN = 0.5;
+const SPEED_MAX = 2;
+const SPEED_DEFAULT = 1.05;
 
 let textToSpeech = null;
 let currentStyle = null;
@@ -161,6 +167,33 @@ function formatTime(seconds) {
     const minutes = Math.floor(rounded / 60);
     const remainingSeconds = String(rounded % 60).padStart(2, '0');
     return `${minutes}:${remainingSeconds}`;
+}
+
+function clampNumber(value, min, max, fallback) {
+    if (!Number.isFinite(value)) {
+        return fallback;
+    }
+    return Math.max(min, Math.min(max, value));
+}
+
+function normalizedSynthesisSettings() {
+    const totalStep = clampNumber(
+        Number.parseInt(totalStepInput.value, 10),
+        TOTAL_STEP_MIN,
+        TOTAL_STEP_MAX,
+        TOTAL_STEP_DEFAULT
+    );
+    const speed = clampNumber(
+        Number.parseFloat(speedInput.value),
+        SPEED_MIN,
+        SPEED_MAX,
+        SPEED_DEFAULT
+    );
+
+    totalStepInput.value = String(totalStep);
+    speedInput.value = String(speed);
+
+    return { totalStep, speed };
 }
 
 function setStatus(message, type = 'info', phase = null) {
@@ -976,8 +1009,7 @@ async function generateAndPlay(startIndex = 0) {
     const localRunId = runId;
     const activeEngine = TTS_ENGINE_SUPERTONIC;
     const lang = langSelect.value;
-    const totalStep = Number.parseInt(totalStepInput.value, 10);
-    const speed = Number.parseFloat(speedInput.value);
+    const { totalStep, speed } = normalizedSynthesisSettings();
 
     runActive = true;
     generationActive = true;

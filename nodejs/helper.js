@@ -282,14 +282,19 @@ class TextToSpeech {
         
         for (const chunk of textList) {
             const { wav, duration } = await this._infer([chunk], [lang], style, totalStep, speed);
+            const trimmedLength = Math.min(
+                wav.length,
+                Math.floor(this.sampleRate * duration[0])
+            );
+            const trimmedWav = wav.slice(0, trimmedLength);
             
             if (wavCat === null) {
-                wavCat = wav;
+                wavCat = trimmedWav;
                 durCat = duration[0];
             } else {
                 const silenceLen = Math.floor(silenceDuration * this.sampleRate);
                 const silence = new Array(silenceLen).fill(0);
-                wavCat = [...wavCat, ...silence, ...wav];
+                wavCat = [...wavCat, ...silence, ...trimmedWav];
                 durCat += duration[0] + silenceDuration;
             }
         }

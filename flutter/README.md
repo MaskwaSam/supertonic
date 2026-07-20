@@ -22,8 +22,20 @@ Supertonic 3 supports 31 languages. Select the appropriate language from the dro
 ## Requirements
 
 - Flutter SDK version ^3.5.0
+- macOS desktop support enabled:
+  ```bash
+  flutter config --enable-macos-desktop
+  ```
 
 ## Running the Demo
+
+Prepare model and voice assets before first run:
+
+```bash
+mkdir -p assets
+rsync -a ../assets/onnx assets/
+rsync -a ../assets/voice_styles assets/
+```
 
 ```bash
 flutter clean

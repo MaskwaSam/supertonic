@@ -103,9 +103,11 @@ public class ExampleONNX {
                     throw new RuntimeException("Number of languages (" + langList.size() + 
                         ") must match number of texts (" + textList.size() + ")");
                 }
+            } else if (voiceStylePaths.size() != 1 || textList.size() != 1 || langList.size() != 1) {
+                throw new RuntimeException("Multiple voice styles, texts, or languages require --batch");
             }
             
-            int bsz = voiceStylePaths.size();
+            int bsz = batch ? voiceStylePaths.size() : 1;
             OrtEnvironment env = OrtEnvironment.getEnvironment();
             
             // --- 2. Load TTS components --- //
