@@ -6,6 +6,16 @@ import {
     writeWavFile
 } from './helper.js';
 import { normalizeForSpeech } from './speech-normalizer.js';
+import {
+    MAX_CUSTOM_VOICE_FILE_BYTES,
+    MAX_READER_CHARACTERS,
+    MAX_TEXT_FILE_BYTES,
+    MODEL_DOWNLOAD_MIB,
+    assertFileWithinLimit,
+    assertTextWithinLimit,
+    dataSaverEnabled,
+    validateVoiceStyleObject,
+} from './runtime-policy.js';
 
 const DEFAULT_ASSET_BASE_URL = 'assets';
 function normalizeAssetBaseUrls(value) {
@@ -53,6 +63,8 @@ let modelsReady = false;
 let modelLoading = false;
 let modelLoadId = 0;
 let modelLoadPromise = null;
+let styleLoadId = 0;
+let styleLoading = false;
 let supertonicBackendText = 'WebAssembly';
 let supertonicBackendUsesWebGPU = false;
 
@@ -84,6 +96,7 @@ let customVoiceOption = null;
 let wordHighlightEnabled = false;
 let chunkWordElements = [];
 let activeWordElement = null;
+let lastProgressAnnouncementAt = 0;
 
 const fileInput = document.getElementById('fileInput');
 const textInput = document.getElementById('text');
@@ -118,6 +131,7 @@ const chunkStat = document.getElementById('chunkStat');
 const generatedStat = document.getElementById('generatedStat');
 const elapsedStat = document.getElementById('elapsedStat');
 const durationStat = document.getElementById('durationStat');
+const runProgress = document.getElementById('runProgress');
 
 function assetUrl(path, baseUrl = activeAssetBaseUrl) {
     return `${baseUrl}/${path.replace(/^assets\//, '')}`;
@@ -202,6 +216,29 @@ function setStatus(message, type = 'info', phase = null) {
     }
     statusText.textContent = message;
     statusBox.className = `status-box ${type}`;
+}
+
+function setProgress(value = 0, max = 1, label = '') {
+    const safeMax = Number.isFinite(max) && max > 0 ? max : 1;
+    const safeValue = Number.isFinite(value) ? Math.max(0, Math.min(value, safeMax)) : 0;
+    runProgress.max = safeMax;
+    runProgress.value = safeValue;
+    runProgress.hidden = !label;
+    statusBox.setAttribute('aria-busy', String(Boolean(label && safeValue < safeMax)));
+    if (label) {
+        runProgress.setAttribute('aria-label', label);
+    } else {
+        runProgress.removeAttribute('aria-label');
+    }
+}
+
+function setThrottledProgressStatus(message, phase, value, max, { force = false } = {}) {
+    setProgress(value, max, message);
+    const now = Date.now();
+    if (force || now - lastProgressAnnouncementAt >= 750 || value >= max) {
+        lastProgressAnnouncementAt = now;
+        setStatus(message, 'info', phase);
+    }
 }
 
 function setModelSource(baseUrl, state = 'ready') {
@@ -315,11 +352,14 @@ function setVoiceSettingsOpen(open) {
 }
 
 function setControls() {
-    const canGenerate = isActiveSynthesizerReady() && !runActive;
+    const canGenerate = !runActive && !modelLoading && !styleLoading;
     const canResume = runActive && isPaused && !playbackComplete;
     const canPause = runActive && !isPaused && !playbackComplete;
     updateVisibleModelSettings();
     updateDownloadButtonLabel();
+    generatePlayBtn.textContent = modelsReady
+        ? 'Generate & Play'
+        : (modelLoading ? `Loading ~${MODEL_DOWNLOAD_MIB} MiB…` : `Load ~${MODEL_DOWNLOAD_MIB} MiB & Play`);
     generatePlayBtn.disabled = !canGenerate;
     pauseBtn.disabled = !canPause;
     resumeBtn.disabled = !canResume;
@@ -327,35 +367,19 @@ function setControls() {
     stickyPauseBtn.disabled = !canPause;
     stickyStopBtn.disabled = !runActive;
     stopBtn.disabled = !runActive;
+
     downloadBtn.disabled = !downloadUrl;
     stickyDownloadBtn.disabled = !downloadUrl;
     stickyControls.classList.toggle('visible', runActive || Boolean(downloadUrl));
-    voiceStyleSelect.disabled = runActive;
+    voiceStyleSelect.disabled = runActive || modelLoading || styleLoading;
     langSelect.disabled = runActive;
     totalStepInput.disabled = runActive;
     speedInput.disabled = runActive;
     fileInput.disabled = runActive;
     voiceSettingsButton.disabled = false;
-    customVoiceInput.disabled = runActive;
+    customVoiceInput.disabled = runActive || modelLoading || styleLoading;
     textInput.disabled = runActive;
     refreshActiveModelBadges();
-}
-
-function validateVoiceStyleJSON(voiceStyle) {
-    const hasTensorShape = (tensor) => (
-        tensor &&
-        Array.isArray(tensor.dims) &&
-        tensor.dims.length === 3 &&
-        Array.isArray(tensor.data)
-    );
-
-    if (!voiceStyle || typeof voiceStyle !== 'object') {
-        throw new Error('Custom voice JSON must be a Supertonic voice-style object.');
-    }
-
-    if (!hasTensorShape(voiceStyle.style_ttl) || !hasTensorShape(voiceStyle.style_dp)) {
-        throw new Error('Custom voice JSON must include style_ttl and style_dp tensor data.');
-    }
 }
 
 function customVoiceLabel(fileName) {
@@ -472,8 +496,8 @@ function syncGeneratedChunkClasses() {
         const hasGeneratedAudio = Boolean(generatedChunks[index]);
         element.classList.toggle('generated', hasGeneratedAudio);
         element.title = hasGeneratedAudio
-            ? 'Double-click to play from this generated chunk'
-            : 'Double-click to generate and play from this chunk';
+            ? 'Play from this generated chunk'
+            : 'Generate and play from this chunk';
     }
 }
 
@@ -522,6 +546,8 @@ function getReaderChunks() {
         return [];
     }
 
+    assertTextWithinLimit(text, MAX_READER_CHARACTERS);
+
     const maxChunkLength = getMaxChunkLength(langSelect.value);
     return chunkText(text, maxChunkLength);
 }
@@ -531,7 +557,14 @@ function rebuildReaderPreview() {
         return;
     }
 
-    chunks = getReaderChunks();
+    try {
+        chunks = getReaderChunks();
+        hideError();
+    } catch (error) {
+        chunks = [];
+        showError(error.message);
+        setStatus(error.message, 'error', 'Input');
+    }
     renderReader(chunks);
     clearGeneratedAudio({ update: false });
     updateStats();
@@ -554,20 +587,15 @@ function renderReader(nextChunks) {
 
     const fragment = document.createDocumentFragment();
     nextChunks.forEach((chunk, index) => {
-        const span = document.createElement('span');
-        span.className = 'reader-chunk';
-        span.dataset.index = String(index);
-        span.tabIndex = 0;
-        appendChunkText(span, chunk, index);
-        span.addEventListener('dblclick', () => playFromChunk(index));
-        span.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                playFromChunk(index);
-            }
-        });
-        chunkElements.push(span);
-        fragment.appendChild(span);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'reader-chunk';
+        button.dataset.index = String(index);
+        button.setAttribute('aria-label', `Play from chunk ${index + 1} of ${nextChunks.length}`);
+        appendChunkText(button, chunk, index);
+        button.addEventListener('click', () => playFromChunk(index));
+        chunkElements.push(button);
+        fragment.appendChild(button);
     });
 
     reader.appendChild(fragment);
@@ -589,9 +617,10 @@ function updateReaderHighlight(index) {
     }
 
     if (index >= 0 && chunkElements[index]) {
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         chunkElements[index].scrollIntoView({
             block: 'center',
-            behavior: 'smooth'
+            behavior: reduceMotion ? 'auto' : 'smooth'
         });
     }
 }
@@ -727,6 +756,7 @@ function startPlaybackLoop(localRunId) {
         }
 
         updateStats();
+
         animationFrameId = requestAnimationFrame(tick);
     };
 
@@ -926,8 +956,7 @@ async function playFromChunk(index) {
         return;
     }
 
-    if (!isActiveSynthesizerReady()) {
-        showError('Models and voice style are not ready yet.');
+    if (!await ensureModelsReadyForAction()) {
         return;
     }
 
@@ -986,14 +1015,20 @@ async function synthesizeChunkWithActiveEngine(chunk, lang, totalStep, speed, pr
 async function generateAndPlay(startIndex = 0) {
     hideError();
 
-    if (!isActiveSynthesizerReady()) {
-        showError('Models and voice style are not ready yet.');
+    let nextChunks;
+    try {
+        nextChunks = getReaderChunks();
+    } catch (error) {
+        showError(error.message);
+        setStatus(error.message, 'error', 'Input');
+        return;
+    }
+    if (nextChunks.length === 0) {
+        showError('Choose a TXT file or enter text first.');
         return;
     }
 
-    const nextChunks = getReaderChunks();
-    if (nextChunks.length === 0) {
-        showError('Choose a TXT file or enter text first.');
+    if (!await ensureModelsReadyForAction()) {
         return;
     }
 
@@ -1021,6 +1056,7 @@ async function generateAndPlay(startIndex = 0) {
     try {
         await ensureAudioContext();
         setStatus(`Generating chunk ${boundedStartIndex + 1} of ${chunks.length}...`, 'info', 'Generating');
+        setProgress(boundedStartIndex, chunks.length, 'Preparing audio generation');
         await yieldToBrowser();
 
         for (let index = boundedStartIndex; index < chunks.length; index += 1) {
@@ -1040,7 +1076,14 @@ async function generateAndPlay(startIndex = 0) {
                 speed,
                 (step, total) => {
                     if (localRunId === runId && activeEngine === TTS_ENGINE_SUPERTONIC) {
-                        setStatus(`Chunk ${chunkNumber} of ${chunks.length}: denoising ${step} of ${total}`, 'info', 'Generating');
+                        const overallValue = index + (step / Math.max(total, 1));
+                        setThrottledProgressStatus(
+                            `Chunk ${chunkNumber} of ${chunks.length}: denoising ${step} of ${total}`,
+                            'Generating',
+                            overallValue,
+                            chunks.length,
+                            { force: step === total }
+                        );
                     }
                 }
             );
@@ -1069,6 +1112,7 @@ async function generateAndPlay(startIndex = 0) {
         generationComplete = true;
         generationActive = false;
         buildDownload();
+        setProgress(chunks.length, chunks.length, 'Audio generation complete');
         setStatus('All chunks generated. Playback is finishing...', 'info', 'Playing');
     } catch (error) {
         if (localRunId !== runId) {
@@ -1079,6 +1123,7 @@ async function generateAndPlay(startIndex = 0) {
         renderReader(chunks);
         showError(error.message);
         setStatus(`Generation failed: ${error.message}`, 'error', 'Error');
+        setProgress();
     } finally {
         setControls();
     }
@@ -1114,15 +1159,44 @@ async function stopCurrentRun() {
     setStatus(
         hadGeneratedAudio ? 'Stopped. Generated chunks are still available.' : 'Stopped.',
         'info',
-        modelsReady ? 'Ready' : 'Loading'
+        'Ready'
     );
+    setProgress();
+}
+
+async function fetchStyleFromJSON(stylePath) {
+    const resolvedStylePath = resolveVoiceStylePath(stylePath);
+    return loadVoiceStyle([resolvedStylePath], true);
 }
 
 async function loadStyleFromJSON(stylePath) {
-    const resolvedStylePath = resolveVoiceStylePath(stylePath);
-    const nextStyle = await loadVoiceStyle([resolvedStylePath], true);
+    const nextStyle = await fetchStyleFromJSON(stylePath);
     currentStylePath = stylePath;
     currentStyle = nextStyle;
+    return nextStyle;
+}
+
+async function ensureModelsReadyForAction() {
+    if (isActiveSynthesizerReady()) {
+        return true;
+    }
+
+    if (modelLoadPromise) {
+        await modelLoadPromise;
+        return isActiveSynthesizerReady();
+    }
+
+    const saveDataNote = dataSaverEnabled()
+        ? ' Data Saver is on; this explicit action is the only time the download starts.'
+        : '';
+    setStatus(
+        `Loading approximately ${MODEL_DOWNLOAD_MIB} MiB of model data.${saveDataNote}`,
+        'info',
+        'Loading'
+    );
+    setProgress(0, 5, 'Loading Supertonic model data');
+    await initializeModels();
+    return isActiveSynthesizerReady();
 }
 
 async function initializeModels(assetSources = MODEL_SOURCE_BASE_URLS) {
@@ -1155,6 +1229,7 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
     for (const baseUrl of sources) {
         activeAssetBaseUrl = baseUrl;
         const sourceLabel = assetSourceLabel(baseUrl);
+        let candidateTextToSpeech = null;
         setModelSource(baseUrl, 'loading');
 
         try {
@@ -1171,7 +1246,13 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
                     },
                     (modelName, current, total) => {
                         if (loadId === modelLoadId) {
-                            setStatus(`Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`, 'info', 'Loading');
+                            setThrottledProgressStatus(
+                                `Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`,
+                                'Loading',
+                                current,
+                                total + 1,
+                                { force: true }
+                            );
                         }
                     },
                     () => loadId === modelLoadId
@@ -1180,7 +1261,7 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
                     await disposeSupertonicInstance(result.textToSpeech);
                     return;
                 }
-                textToSpeech = result.textToSpeech;
+                candidateTextToSpeech = result.textToSpeech;
                 executionProvider = 'webgpu';
                 supertonicBackendText = 'WebGPU';
                 supertonicBackendUsesWebGPU = true;
@@ -1197,7 +1278,13 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
                         },
                         (modelName, current, total) => {
                             if (loadId === modelLoadId) {
-                                setStatus(`Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`, 'info', 'Loading');
+                                setThrottledProgressStatus(
+                                    `Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`,
+                                    'Loading',
+                                    current,
+                                    total + 1,
+                                    { force: true }
+                                );
                             }
                         },
                         () => loadId === modelLoadId
@@ -1206,7 +1293,7 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
                         await disposeSupertonicInstance(result.textToSpeech);
                         return;
                     }
-                    textToSpeech = result.textToSpeech;
+                    candidateTextToSpeech = result.textToSpeech;
                     executionProvider = 'wasm';
                     supertonicBackendText = 'WebAssembly';
                     supertonicBackendUsesWebGPU = false;
@@ -1224,21 +1311,30 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
                 }
             }
 
-            setStatus('Loading voice style...', 'info', 'Loading');
-            await loadStyleFromJSON(currentStylePath);
+
+            const stylePathForLoad = currentStylePath;
+            setThrottledProgressStatus('Loading voice style...', 'Loading', 4, 5, { force: true });
+            const nextStyle = await fetchStyleFromJSON(stylePathForLoad);
             if (loadId !== modelLoadId) {
-                await releaseSupertonicModel({ invalidate: false, update: false });
+                await disposeSupertonicInstance(candidateTextToSpeech);
                 return;
             }
+
+            textToSpeech = candidateTextToSpeech;
+            candidateTextToSpeech = null;
+            currentStylePath = stylePathForLoad;
+            currentStyle = nextStyle;
 
             modelsReady = true;
             modelLoading = false;
             setBackendBadge(supertonicBackendText, { webgpu: supertonicBackendUsesWebGPU });
             setModelSource(baseUrl, 'ready');
+            setProgress(5, 5, 'Supertonic model ready');
             setStatus(`Supertonic loaded with ${executionProvider.toUpperCase()} from ${sourceLabel}.`, 'success', 'Ready');
             setControls();
             return;
         } catch (error) {
+            await disposeSupertonicInstance(candidateTextToSpeech);
             if (loadId !== modelLoadId) return;
             lastError = error;
             const diagnostics = formatFetchDiagnostics(error);
@@ -1259,6 +1355,7 @@ async function initializeModelsForLoad(loadId, assetSources = MODEL_SOURCE_BASE_
     }
 
     modelLoading = false;
+    setProgress();
     const summary = fetchDiagnostics.length
         ? `Last failures: ${fetchDiagnostics.join(' ; ')}`
         : 'No model source was available.';
@@ -1328,9 +1425,13 @@ customVoiceInput.addEventListener('change', async () => {
     let nextObjectUrl = null;
 
     try {
+        assertFileWithinLimit(file, MAX_CUSTOM_VOICE_FILE_BYTES, 'Custom voice JSON');
+        if (!/\.json$/i.test(file.name)) {
+            throw new Error('Custom voice file must use the .json extension.');
+        }
         const rawJSON = await file.text();
         const parsedVoiceStyle = JSON.parse(rawJSON);
-        validateVoiceStyleJSON(parsedVoiceStyle);
+        validateVoiceStyleObject(parsedVoiceStyle);
 
         nextObjectUrl = URL.createObjectURL(new Blob([rawJSON], { type: 'application/json' }));
         const nextStyle = await loadVoiceStyle([nextObjectUrl], true);
@@ -1369,12 +1470,19 @@ fileInput.addEventListener('change', async () => {
     }
 
     try {
+        assertFileWithinLimit(file, MAX_TEXT_FILE_BYTES, 'TXT file');
+        if (!/\.txt$/i.test(file.name)) {
+            throw new Error('Reader files must use the .txt extension.');
+        }
         const text = await file.text();
+        assertTextWithinLimit(text, MAX_READER_CHARACTERS, 'TXT file text');
         textInput.value = text;
         rebuildReaderPreview();
         setStatus(`Loaded ${file.name}.`);
     } catch (error) {
+        fileInput.value = '';
         showError(`Could not read file: ${error.message}`);
+        setStatus(`TXT file rejected: ${error.message}`, 'error', 'Input');
     }
 });
 
@@ -1392,18 +1500,40 @@ speedInput.addEventListener('change', clearAudioAfterSynthesisSettingChange);
 
 voiceStyleSelect.addEventListener('change', async (event) => {
     hideError();
+    const requestedPath = event.target.value;
+    const requestId = ++styleLoadId;
+
+    if (!modelsReady) {
+        currentStylePath = requestedPath;
+        currentStyle = null;
+        clearGeneratedAudio();
+        setStatus('Voice selected. Its style will load with the model after you press Play.', 'info', 'Ready');
+        setControls();
+        return;
+    }
 
     try {
+        styleLoading = true;
         setControls();
-        generatePlayBtn.disabled = true;
-        setStatus('Loading voice style...');
-        await loadStyleFromJSON(event.target.value);
+        setStatus('Loading voice style...', 'info', 'Loading');
+        const nextStyle = await fetchStyleFromJSON(requestedPath);
+        if (requestId !== styleLoadId) {
+            return;
+        }
+        currentStylePath = requestedPath;
+        currentStyle = nextStyle;
         clearGeneratedAudio();
         setStatus('Voice style loaded.', 'success');
     } catch (error) {
+        if (requestId !== styleLoadId) {
+            return;
+        }
         showError(`Could not load voice style: ${error.message}`);
         voiceStyleSelect.value = currentStylePath;
     } finally {
+        if (requestId === styleLoadId) {
+            styleLoading = false;
+        }
         setControls();
     }
 });
@@ -1456,15 +1586,28 @@ async function registerServiceWorker() {
     }
 
     try {
-        await navigator.serviceWorker.register('./sw.js');
+        const buildId = typeof __SUPERTONIC_BUILD_ID__ === 'undefined'
+            ? 'development'
+            : __SUPERTONIC_BUILD_ID__;
+        await navigator.serviceWorker.register(`./sw.js?build=${encodeURIComponent(buildId)}`);
     } catch (error) {
         console.warn('Service worker registration failed:', error);
     }
 }
 
-window.addEventListener('load', async () => {
+window.addEventListener('load', () => {
     rebuildReaderPreview();
+    modelSourceBadge.textContent = 'Model: not loaded';
+    modelSourceBadge.className = 'source-badge visible deferred';
+    const saveDataNote = dataSaverEnabled()
+        ? ' Data Saver is on, so no model data will download until you press Play.'
+        : '';
+    setStatus(
+        `Ready. The approximately ${MODEL_DOWNLOAD_MIB} MiB model loads only when you press Generate & Play.${saveDataNote}`,
+        'info',
+        'Ready'
+    );
+    setProgress();
     setControls();
     registerServiceWorker();
-    await initializeModels();
 });

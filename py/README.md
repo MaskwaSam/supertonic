@@ -41,6 +41,8 @@ pip install -r requirements.txt
 
 ## Basic Usage
 
+The POSIX-shell examples below wrap every `--text` value in double quotes. Keep each text quoted so it reaches Python as one argument; in batch mode, provide one separately quoted argument per text.
+
 ### Example 1: Default Inference
 Run inference with default settings:
 ```bash
@@ -132,7 +134,7 @@ This will:
 | `--speed` | float | 1.05 | Speech speed factor (higher = faster, lower = slower) |
 | `--n-test` | int | 4 | Number of times to generate each sample |
 | `--voice-style` | str+ | `../assets/voice_styles/M1.json` | Voice style file path(s) |
-| `--text` | str+ | (long default text) | Text(s) to synthesize |
+| `--text` | str+ | (long default text) | One or more texts, each supplied as a separately double-quoted argument |
 | `--lang` | str+ | `en` | Language(s) for text(s); see the main README for all 31 codes |
 | `--save-dir` | str | `results` | Output directory |
 | `--batch` | flag | False | Enable batch mode (disables automatic text chunking) |

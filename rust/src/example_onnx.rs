@@ -4,50 +4,42 @@ use std::fs;
 use std::path::PathBuf;
 
 mod helper;
+mod conformance;
 
 use helper::{load_text_to_speech, load_voice_style, sanitize_filename, timer, write_wav_file};
+use conformance::{validate_cli, CliInputs};
 
 #[derive(Parser, Debug)]
 #[command(name = "TTS ONNX Inference")]
 #[command(about = "TTS Inference with ONNX Runtime (Rust)", long_about = None)]
 struct Args {
-    /// Use GPU for inference (default: CPU)
     #[arg(long, default_value = "false")]
     use_gpu: bool,
 
-    /// Path to ONNX model directory
     #[arg(long, default_value = "../assets/onnx")]
     onnx_dir: String,
 
-    /// Number of denoising steps
     #[arg(long, default_value = "8")]
     total_step: usize,
 
-    /// Speech speed factor (higher = faster)
     #[arg(long, default_value = "1.05")]
     speed: f32,
 
-    /// Number of times to generate
     #[arg(long, default_value = "4")]
     n_test: usize,
 
-    /// Voice style file path(s)
     #[arg(long, value_delimiter = ',', default_values_t = vec!["../assets/voice_styles/M1.json".to_string()])]
     voice_style: Vec<String>,
 
-    /// Text(s) to synthesize
     #[arg(long, value_delimiter = '|', default_values_t = vec!["This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen.".to_string()])]
     text: Vec<String>,
 
-    /// Language(s) for synthesis; see the main README for all supported codes
     #[arg(long, value_delimiter = ',', default_values_t = vec!["en".to_string()])]
     lang: Vec<String>,
 
-    /// Output directory
     #[arg(long, default_value = "results")]
     save_dir: String,
 
-    /// Enable batch mode (multiple text-style pairs)
     #[arg(long, default_value = "false")]
     batch: bool,
 }
@@ -55,7 +47,6 @@ struct Args {
 fn main() -> Result<()> {
     println!("=== TTS Inference with ONNX Runtime (Rust) ===\n");
 
-    // --- 1. Parse arguments --- //
     let args = Args::parse();
     let total_step = args.total_step;
     let speed = args.speed;
@@ -65,6 +56,14 @@ fn main() -> Result<()> {
     let lang_list = &args.lang;
     let save_dir = &args.save_dir;
     let batch = args.batch;
+
+    validate_cli(CliInputs {
+        total_step,
+        speed,
+        n_test,
+        text: text_list,
+        lang: lang_list,
+    }).map_err(anyhow::Error::msg)?;
 
     if batch {
         if voice_style_paths.len() != text_list.len() {
@@ -86,14 +85,8 @@ fn main() -> Result<()> {
     }
 
     let bsz = if batch { voice_style_paths.len() } else { 1 };
-
-    // --- 2. Load TTS components --- //
     let mut text_to_speech = load_text_to_speech(&args.onnx_dir, args.use_gpu)?;
-
-    // --- 3. Load voice styles --- //
     let style = load_voice_style(voice_style_paths, true)?;
-
-    // --- 4. Synthesize speech --- //
     fs::create_dir_all(save_dir)?;
 
     for n in 0..n_test {
@@ -110,7 +103,6 @@ fn main() -> Result<()> {
             (w, vec![d])
         };
 
-        // Save outputs
         for i in 0..bsz {
             let fname = format!("{}_{}.wav", sanitize_filename(&text_list[i], 20), n + 1);
             let wav_slice = if batch {
@@ -120,7 +112,6 @@ fn main() -> Result<()> {
                 let wav_end = wav_start + actual_len.min(wav_len);
                 &wav[wav_start..wav_end]
             } else {
-                // For non-batch mode, wav is a single concatenated audio
                 let actual_len = (text_to_speech.sample_rate as f32 * duration[0]) as usize;
                 &wav[..actual_len.min(wav.len())]
             };

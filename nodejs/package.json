@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node example_onnx.js",
-    "test": "node --check example_onnx.js && node --check helper.js"
+    "test": "node --check example_onnx.js && node --check helper.js && node --check text-utils.js && node test-conformance.js"
   },
   "keywords": [
     "tts",
@@ -18,7 +18,7 @@
   "license": "MIT",
   "dependencies": {
     "fft.js": "^4.0.3",
-    "js-yaml": "^4.1.0",
+    "js-yaml": "4.3.0",
     "onnxruntime-node": "^1.19.2"
   },
   "engines": {

@@ -30,6 +30,8 @@ npm install
 
 ## Basic Usage
 
+The POSIX-shell examples below wrap every `--text` value in double quotes. Keep the complete value quoted so spaces and the batch `|` separator reach Node.js as one argument.
+
 ### Example 1: Default Inference
 Run inference with default settings:
 ```bash
@@ -104,7 +106,7 @@ This will:
 | `--speed` | float | 1.05 | Speech speed factor (higher = faster, lower = slower) |
 | `--n-test` | int | 4 | Number of times to generate each sample |
 | `--voice-style` | str+ | `../assets/voice_styles/M1.json` | Voice style file path(s). Separate multiple files with commas |
-| `--text` | str+ | (long default text) | Text(s) to synthesize. Separate multiple texts with pipes |
+| `--text` | str+ | (long default text) | Double-quoted text value; separate batch texts with `|` inside the quotes |
 | `--lang` | str+ | `en` | Language(s) for text(s); see the main README for all 31 codes. Separate multiple with commas |
 | `--save-dir` | str | `results` | Output directory |
 | `--batch` | flag | False | Enable batch mode (disables automatic text chunking) |

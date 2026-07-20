@@ -1,15 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
-import { loadTextToSpeech, loadVoiceStyle, timer, writeWavFile, sanitizeFilename } from './helper.js';
+import { validateCliInputs } from './text-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/**
- * Parse command line arguments
- */
 function parseArgs() {
     const args = {
         useGpu: false,
@@ -33,11 +29,11 @@ function parseArgs() {
         } else if (arg === '--onnx-dir' && i + 1 < process.argv.length) {
             args.onnxDir = process.argv[++i];
         } else if (arg === '--total-step' && i + 1 < process.argv.length) {
-            args.totalStep = parseInt(process.argv[++i]);
+            args.totalStep = Number(process.argv[++i]);
         } else if (arg === '--speed' && i + 1 < process.argv.length) {
-            args.speed = parseFloat(process.argv[++i]);
+            args.speed = Number(process.argv[++i]);
         } else if (arg === '--n-test' && i + 1 < process.argv.length) {
-            args.nTest = parseInt(process.argv[++i]);
+            args.nTest = Number(process.argv[++i]);
         } else if (arg === '--voice-style' && i + 1 < process.argv.length) {
             args.voiceStyle = process.argv[++i].split(',');
         } else if (arg === '--text' && i + 1 < process.argv.length) {
@@ -52,13 +48,9 @@ function parseArgs() {
     return args;
 }
 
-/**
- * Main inference function
- */
 async function main() {
     console.log('=== TTS Inference with ONNX Runtime (Node.js) ===\n');
 
-    // --- 1. Parse arguments --- //
     const args = parseArgs();
     const totalStep = args.totalStep;
     const speed = args.speed;
@@ -68,6 +60,8 @@ async function main() {
     const textList = args.text;
     const langList = args.lang;
     const batch = args.batch;
+
+    validateCliInputs({ totalStep, speed, nTest, text: textList, lang: langList });
 
     if (batch) {
         if (voiceStylePaths.length !== textList.length) {
@@ -81,17 +75,16 @@ async function main() {
     }
     const bsz = batch ? voiceStylePaths.length : 1;
 
-    // --- 2. Load Text to Speech --- //
+    // Import runtime/model dependencies only after every CLI input is valid.
+    const { loadTextToSpeech, loadVoiceStyle, timer, writeWavFile, sanitizeFilename } = await import('./helper.js');
+
     const onnxDir = path.resolve(__dirname, args.onnxDir);
     const textToSpeech = await loadTextToSpeech(onnxDir, args.useGpu);
-
-    // --- 3. Load Voice Style --- //
     const style = loadVoiceStyle(voiceStylePaths, true);
 
-    // --- 4. Synthesize speech --- //
     for (let n = 0; n < nTest; n++) {
         console.log(`\n[${n + 1}/${nTest}] Starting synthesis...`);
-        
+
         const { wav, duration } = await timer('Generating speech from text', async () => {
             if (batch) {
                 return await textToSpeech.batch(textList, langList, style, totalStep, speed);
@@ -99,7 +92,7 @@ async function main() {
                 return await textToSpeech.call(textList[0], langList[0], style, totalStep, speed);
             }
         });
-        
+
         if (!fs.existsSync(saveDir)) {
             fs.mkdirSync(saveDir, { recursive: true });
         }
@@ -109,7 +102,7 @@ async function main() {
             const fname = `${sanitizeFilename(textList[b], 20)}_${n + 1}.wav`;
             const wavLen = Math.floor(textToSpeech.sampleRate * duration[b]);
             const wavOut = wav.slice(b * wavShape[1], b * wavShape[1] + wavLen);
-            
+
             const outputPath = path.join(saveDir, fname);
             writeWavFile(outputPath, wavOut, textToSpeech.sampleRate);
             console.log(`Saved: ${outputPath}`);
@@ -119,7 +112,6 @@ async function main() {
     console.log('\n=== Synthesis completed successfully! ===');
 }
 
-// Run main function
 main().catch(err => {
     console.error('Error during inference:', err);
     process.exit(1);

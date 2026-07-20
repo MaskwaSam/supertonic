@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "length_unit": "Unicode scalar values",
+  "limits": {
+    "total_step": { "min": 1, "max": 100 },
+    "speed": { "min": 0.25, "max": 4.0 },
+    "n_test": { "min": 1, "max": 100 },
+    "text_codepoints": { "min": 1, "max": 100000 },
+    "languages": [
+      "en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es",
+      "et", "fi", "fr", "hi", "hr", "hu", "id", "it", "lt", "lv",
+      "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "tr", "uk", "vi"
+    ]
+  },
+  "chunking": [
+    { "name": "empty", "text": "   \n\n  ", "max_len": 12, "expected": [] },
+    {
+      "name": "unicode_scalar_length",
+      "text": "안녕하세요 세계. Café déjà vu.",
+      "max_len": 14,
+      "expected": ["안녕하세요 세계.", "Café déjà vu."]
+    },
+    {
+      "name": "abbreviation_is_not_a_sentence_boundary",
+      "text": "Dr. Lee arrived. Next.",
+      "max_len": 15,
+      "expected": ["Dr. Lee", "arrived.", "Next."]
+    },
+    {
+      "name": "overlong_token_is_hard_split",
+      "text": "abcdefghijk",
+      "max_len": 4,
+      "expected": ["abcd", "efgh", "ijk"]
+    },
+    {
+      "name": "paragraphs_are_boundaries",
+      "text": "alpha beta\n\ngamma delta",
+      "max_len": 20,
+      "expected": ["alpha beta", "gamma delta"]
+    }
+  ],
+  "invalid_cli": [
+    { "name": "zero_steps", "field": "total_step", "value": 0 },
+    { "name": "too_many_steps", "field": "total_step", "value": 101 },
+    { "name": "zero_speed", "field": "speed", "value": 0 },
+    { "name": "non_finite_speed", "field": "speed", "value": "NaN" },
+    { "name": "too_fast", "field": "speed", "value": 4.01 },
+    { "name": "zero_runs", "field": "n_test", "value": 0 },
+    { "name": "too_many_runs", "field": "n_test", "value": 101 },
+    { "name": "blank_text", "field": "text", "value": "   " },
+    { "name": "unsupported_language", "field": "lang", "value": "xx" }
+  ]
+}

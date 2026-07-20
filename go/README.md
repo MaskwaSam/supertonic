@@ -72,6 +72,8 @@ export ONNXRUNTIME_LIB_PATH=/path/to/libonnxruntime.dylib  # macOS
 
 ## Basic Usage
 
+The POSIX-shell examples below wrap every `-text` value in double quotes. Keep the complete value quoted so spaces and the batch `|` separator reach the Go program as one argument.
+
 ### Example 1: Default Inference
 Run inference with default settings:
 ```bash
@@ -140,7 +142,7 @@ This will:
 | `-total-step` | int | 8 | Number of denoising steps (higher = better quality, slower) |
 | `-n-test` | int | 4 | Number of times to generate each sample |
 | `-voice-style` | str | `../assets/voice_styles/M1.json` | Voice style file path(s), comma-separated |
-| `-text` | str | (long default text) | Text(s) to synthesize, pipe-separated |
+| `-text` | str | (long default text) | Double-quoted text value; separate batch texts with `|` inside the quotes |
 | `-lang` | str | `en` | Language(s) for synthesis, comma-separated; see the main README for all 31 codes |
 | `-save-dir` | str | `results` | Output directory |
 | `--batch` | flag | false | Enable batch mode (multiple text-style pairs, disables automatic chunking) |

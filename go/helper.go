@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"supertonic-tts/textutil"
 	"time"
 	"unicode"
 
@@ -804,7 +805,7 @@ func (tts *TextToSpeech) Call(text string, lang string, style *Style, totalStep 
 	if lang == "ko" || lang == "ja" {
 		maxLen = 120
 	}
-	chunks := chunkText(text, maxLen)
+	chunks := textutil.ChunkText(text, maxLen)
 
 	var wavCat []float32
 	var durCat float32

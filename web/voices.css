@@ -128,6 +128,12 @@ button svg {
     gap: 7px;
 }
 
+.sample-copy small {
+    color: #66788a;
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
 label,
 .settings-grid span {
     color: #34495e;
@@ -196,6 +202,14 @@ button:focus-visible,
     background: #edf6ff;
     color: #174f8a;
     line-height: 1.35;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.status-box progress {
+    width: min(260px, 32vw);
+    min-width: 140px;
+    accent-color: currentColor;
 }
 
 .status-box.error {
@@ -353,5 +367,24 @@ button:focus-visible,
     .settings-grid,
     .voice-grid {
         grid-template-columns: 1fr;
+    }
+
+    .status-box {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .status-box progress {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
     }
 }

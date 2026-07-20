@@ -17,7 +17,7 @@
                     <a class="header-link" href="./voices.html">Voice examples</a>
                     <div class="badge-row" aria-label="Runtime status">
                         <div id="backendBadge" class="backend-badge">WebAssembly</div>
-                        <div id="modelSourceBadge" class="source-badge">Model: loading</div>
+                        <div id="modelSourceBadge" class="source-badge visible deferred">Model: not loaded</div>
                     </div>
                     <div id="voiceSettingsContainer" class="settings-menu">
                         <button id="voiceSettingsButton" class="icon-button" type="button" aria-label="Voice settings" aria-expanded="false" aria-controls="voiceSettingsPanel">
@@ -33,30 +33,34 @@
                             </label>
                             <div class="field-group">
                                 <label for="customVoiceInput">Custom voice JSON</label>
-                                <input id="customVoiceInput" type="file" accept=".json,application/json">
+                                <input id="customVoiceInput" type="file" accept=".json,application/json" aria-describedby="customVoiceHint">
+                                <small id="customVoiceHint" class="field-hint">Supertonic float32 voice style, up to 1 MiB.</small>
                             </div>
                         </div>
                     </div>
                 </div>
             </header>
 
-            <section id="statusBox" class="status-box" aria-live="polite">
+            <section id="statusBox" class="status-box" role="status" aria-live="polite" aria-busy="false">
                 <div>
-                    <span id="statusPhase" class="status-phase">Loading</span>
-                    <span id="statusText">Preparing model sources...</span>
+                    <span id="statusPhase" class="status-phase">Ready</span>
+                    <span id="statusText">The approximately 380 MiB model loads only when you press Generate &amp; Play.</span>
                 </div>
+                <progress id="runProgress" max="1" value="0" hidden></progress>
             </section>
 
             <section class="workspace">
                 <aside class="control-panel">
                     <div class="field-group">
                         <label for="fileInput">TXT file</label>
-                        <input id="fileInput" type="file" accept=".txt,text/plain">
+                        <input id="fileInput" type="file" accept=".txt,text/plain" aria-describedby="fileInputHint">
+                        <small id="fileInputHint" class="field-hint">Up to 256 KiB and 20,000 characters.</small>
                     </div>
 
                     <div class="field-group">
                         <label for="text">Source text</label>
-                        <textarea id="text">This morning, I took a walk in the park. The sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen. Later, I sat by the window with a cup of coffee and read a few pages from a book I had been meaning to finish.</textarea>
+                        <textarea id="text" maxlength="20000" aria-describedby="textLimitHint">This morning, I took a walk in the park. The sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen. Later, I sat by the window with a cup of coffee and read a few pages from a book I had been meaning to finish.</textarea>
+                        <small id="textLimitHint" class="field-hint">20,000-character maximum.</small>
                     </div>
 
                     <div class="field-grid">
@@ -126,7 +130,7 @@
                     </div>
 
                     <div class="button-row">
-                        <button id="generatePlayBtn" class="primary" disabled>Generate & Play</button>
+                        <button id="generatePlayBtn" class="primary">Load ~380 MiB &amp; Play</button>
                         <button id="pauseBtn" disabled>Pause</button>
                         <button id="resumeBtn" disabled>Resume</button>
                         <button id="stopBtn" disabled>Stop</button>

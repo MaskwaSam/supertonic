@@ -2,10 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as ort from 'onnxruntime-node';
+import { AVAILABLE_LANGS, chunkText } from './text-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
-
-const AVAILABLE_LANGS = ["en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hi", "hr", "hu", "id", "it", "lt", "lv", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "tr", "uk", "vi"];
 
 /**
  * Unicode text processor
@@ -519,46 +518,4 @@ export function sanitizeFilename(text, maxLen) {
     const prefix = text.substring(0, maxLen);
     // \p{L} matches any Unicode letter, \p{N} matches any Unicode number
     return prefix.replace(/[^\p{L}\p{N}_]/gu, '_');
-}
-
-/**
- * Chunk text into manageable segments
- */
-function chunkText(text, maxLen = 300) {
-    if (typeof text !== 'string') {
-        throw new Error(`chunkText expects a string, got ${typeof text}`);
-    }
-    
-    // Split by paragraph (two or more newlines)
-    const paragraphs = text.trim().split(/\n\s*\n+/).filter(p => p.trim());
-    
-    const chunks = [];
-    
-    for (let paragraph of paragraphs) {
-        paragraph = paragraph.trim();
-        if (!paragraph) continue;
-        
-        // Split by sentence boundaries (period, question mark, exclamation mark followed by space)
-        // But exclude common abbreviations like Mr., Mrs., Dr., etc. and single capital letters like F.
-        const sentences = paragraph.split(/(?<!Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|Sr\.|Jr\.|Ph\.D\.|etc\.|e\.g\.|i\.e\.|vs\.|Inc\.|Ltd\.|Co\.|Corp\.|St\.|Ave\.|Blvd\.)(?<!\b[A-Z]\.)(?<=[.!?])\s+/);
-        
-        let currentChunk = "";
-        
-        for (let sentence of sentences) {
-            if (currentChunk.length + sentence.length + 1 <= maxLen) {
-                currentChunk += (currentChunk ? " " : "") + sentence;
-            } else {
-                if (currentChunk) {
-                    chunks.push(currentChunk.trim());
-                }
-                currentChunk = sentence;
-            }
-        }
-        
-        if (currentChunk) {
-            chunks.push(currentChunk.trim());
-        }
-    }
-    
-    return chunks;
 }

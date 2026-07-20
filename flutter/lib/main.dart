@@ -108,6 +108,14 @@ class _TTSPageState extends State<TTSPage> {
       return;
     }
 
+    // The UI only exposes supported values, but keep this guard at the
+    // synthesis boundary in case the selected value is ever restored from
+    // persisted or external state.
+    if (!isValidLang(_selectedLang)) {
+      setState(() => _status = 'Unsupported language: $_selectedLang');
+      return;
+    }
+
     setState(() {
       _isGenerating = true;
       _status = 'Generating speech...';
@@ -329,7 +337,11 @@ class _TTSPageState extends State<TTSPage> {
                         .toList(),
                     onChanged: _isLoading || _isGenerating
                         ? null
-                        : (value) => setState(() => _selectedLang = value!),
+                        : (value) {
+                            if (value != null && isValidLang(value)) {
+                              setState(() => _selectedLang = value);
+                            }
+                          },
                   ),
                 ),
               ],

@@ -73,6 +73,8 @@ endif()
 add_library(tts_helper STATIC
     helper.cpp
     helper.h
+    text_utils.cpp
+    text_utils.h
 )
 
 if(onnxruntime_FOUND)
@@ -118,5 +120,4 @@ endif()
 # Installation
 install(TARGETS example_onnx DESTINATION bin)
 install(TARGETS tts_helper DESTINATION lib)
-install(FILES helper.h DESTINATION include)
 

@@ -1,41 +1,28 @@
+import { createHash } from 'node:crypto';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    CDN_ASSET_REVISION,
+    LEGAL_FILES,
+    ONNX_RUNTIME_FILES,
+    REQUIRED_ONNX_FILES,
+    REQUIRED_VOICE_STYLE_FILES,
+} from './package-config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(__dirname, '..');
+const repoDir = path.resolve(webDir, '..');
+const sourceAssetsDir = path.join(repoDir, 'assets');
+const onnxRuntimeDistDir = path.join(webDir, 'node_modules/onnxruntime-web/dist');
 const distDir = path.join(webDir, 'dist');
 
-const requiredRuntimeFiles = [
-    'onnx-runtime/ort-wasm-simd-threaded.mjs',
-    'onnx-runtime/ort-wasm-simd-threaded.js',
-    'onnx-runtime/ort-wasm-simd-threaded.wasm',
-    'onnx-runtime/ort-wasm-simd-threaded.jsep.mjs',
-    'onnx-runtime/ort-wasm-simd-threaded.jsep.js',
-    'onnx-runtime/ort-wasm-simd-threaded.jsep.wasm',
-];
+const requiredRuntimeFiles = ONNX_RUNTIME_FILES.map(({ destination }) => `onnx-runtime/${destination}`);
 
-const requiredVoiceStyles = [
-    'F1.json',
-    'F2.json',
-    'F3.json',
-    'F4.json',
-    'F5.json',
-    'M1.json',
-    'M2.json',
-    'M3.json',
-    'M4.json',
-    'M5.json',
-].map((file) => `assets/voice_styles/${file}`);
+const requiredVoiceStyles = REQUIRED_VOICE_STYLE_FILES.map((file) => `assets/voice_styles/${file}`);
 
-const requiredOnnxFiles = [
-    'assets/onnx/tts.json',
-    'assets/onnx/unicode_indexer.json',
-    'assets/onnx/duration_predictor.onnx',
-    'assets/onnx/text_encoder.onnx',
-    'assets/onnx/vector_estimator.onnx',
-    'assets/onnx/vocoder.onnx',
-];
+const requiredOnnxFiles = REQUIRED_ONNX_FILES.map((file) => `assets/onnx/${file}`);
+const requiredLegalFiles = LEGAL_FILES.map(({ destination }) => destination);
 
 function argValue(name) {
     const prefix = `${name}=`;
@@ -78,6 +65,19 @@ function assert(condition, message) {
     }
 }
 
+async function sha256(filePath) {
+    return createHash('sha256').update(await readFile(filePath)).digest('hex');
+}
+
+async function assertSameFile(sourcePath, destinationRelativePath) {
+    const destinationPath = path.join(distDir, destinationRelativePath);
+    const [sourceHash, destinationHash] = await Promise.all([
+        sha256(sourcePath),
+        sha256(destinationPath),
+    ]);
+    assert(sourceHash === destinationHash, `Packaged file differs from its allowlisted source: ${destinationRelativePath}`);
+}
+
 function assertNoForbiddenFiles(files) {
     const forbidden = files.filter((file) => (
         file.includes('__MACOSX/') ||
@@ -98,7 +98,17 @@ function assertNoForbiddenFiles(files) {
 
 async function assertCommon(files) {
     assertNoForbiddenFiles(files);
-    for (const file of ['index.html', 'voices.html', 'sw.js', 'app-shell-manifest.json', 'README.txt', ...requiredRuntimeFiles, ...requiredVoiceStyles]) {
+    for (const file of [
+        'index.html',
+        'voices.html',
+        'sw.js',
+        'app-shell-manifest.json',
+        'README.txt',
+        'RELEASE-MANIFEST.json',
+        ...requiredLegalFiles,
+        ...requiredRuntimeFiles,
+        ...requiredVoiceStyles,
+    ]) {
         assert(files.includes(file), `Missing dist file: ${file}`);
         await assertNonEmptyFile(file);
     }
@@ -128,6 +138,24 @@ async function assertCommon(files) {
         }
         assert(files.includes(normalized), `Service-worker manifest references missing file: ${entry}`);
     }
+
+    for (const voiceStyle of REQUIRED_VOICE_STYLE_FILES) {
+        await assertSameFile(
+            path.join(sourceAssetsDir, 'voice_styles', voiceStyle),
+            `assets/voice_styles/${voiceStyle}`
+        );
+    }
+    for (const { source, destination } of ONNX_RUNTIME_FILES) {
+        await assertSameFile(
+            path.join(onnxRuntimeDistDir, source),
+            `onnx-runtime/${destination}`
+        );
+    }
+    for (const { source, destination } of LEGAL_FILES) {
+        await assertSameFile(path.resolve(webDir, source), destination);
+    }
+
+    return manifest;
 }
 
 async function assertCdn(files) {
@@ -136,13 +164,19 @@ async function assertCdn(files) {
 
     const readme = await readFile(path.join(distDir, 'README.txt'), 'utf8');
     assert(readme.includes('Supertonic Reader CDN Bundle'), 'CDN README marker is missing.');
-    assert(readme.includes('724fb5abbf5502583fb520898d45929e62f02c0b'), 'CDN README does not mention the pinned asset revision.');
+    assert(readme.includes(CDN_ASSET_REVISION), 'CDN README does not mention the pinned asset revision.');
 }
 
 async function assertStatic(files) {
     for (const file of requiredOnnxFiles) {
         assert(files.includes(file), `Missing self-contained model file: ${file}`);
         await assertNonEmptyFile(file);
+    }
+    for (const onnxFile of REQUIRED_ONNX_FILES) {
+        await assertSameFile(
+            path.join(sourceAssetsDir, 'onnx', onnxFile),
+            `assets/onnx/${onnxFile}`
+        );
     }
 
     const readme = await readFile(path.join(distDir, 'README.txt'), 'utf8');
@@ -154,10 +188,63 @@ async function assertStatic(files) {
     assert(!jsText.includes('huggingface.co/Supertone/supertonic-3'), 'Static build still embeds the Hugging Face model URL.');
 }
 
+async function assertReleaseManifest(files, resolvedMode) {
+    const releaseManifest = JSON.parse(await readFile(path.join(distDir, 'RELEASE-MANIFEST.json'), 'utf8'));
+    assert(releaseManifest.schemaVersion === 1, 'Release manifest schema version must be 1.');
+    assert(releaseManifest.mode === resolvedMode, `Release manifest mode must be ${resolvedMode}.`);
+    assert(releaseManifest.model?.revision === CDN_ASSET_REVISION, 'Release manifest model revision is not pinned correctly.');
+    assert(/^[0-9a-f]{40}$/.test(releaseManifest.sourceCommit), 'Release manifest must contain a full source commit.');
+    assert(/^[0-9a-f]{64}$/.test(releaseManifest.packageLockSha256), 'Release manifest must hash package-lock.json.');
+    assert(Array.isArray(releaseManifest.files), 'Release manifest files must be an array.');
+
+    const actualFiles = files.filter((file) => file !== 'RELEASE-MANIFEST.json').sort();
+    const manifestPaths = releaseManifest.files.map((entry) => entry.path).sort();
+    assert(new Set(manifestPaths).size === manifestPaths.length, 'Release manifest contains duplicate file paths.');
+    assert(
+        JSON.stringify(manifestPaths) === JSON.stringify(actualFiles),
+        'Release manifest file list does not exactly match dist.'
+    );
+
+    for (const entry of releaseManifest.files) {
+        assert(/^[0-9a-f]{64}$/.test(entry.sha256), `Invalid SHA-256 for ${entry.path}.`);
+        const filePath = path.join(distDir, entry.path);
+        const fileStat = await stat(filePath);
+        assert(entry.bytes === fileStat.size, `Release manifest byte count differs for ${entry.path}.`);
+        assert(entry.sha256 === await sha256(filePath), `Release manifest hash differs for ${entry.path}.`);
+    }
+}
+
+function assertExactAllowlist(files, appShellManifest, resolvedMode) {
+    const expected = new Set([
+        'index.html',
+        'voices.html',
+        'sw.js',
+        'app-shell-manifest.json',
+        'README.txt',
+        'RELEASE-MANIFEST.json',
+        ...requiredLegalFiles,
+        ...requiredRuntimeFiles,
+        ...requiredVoiceStyles,
+        ...(resolvedMode === 'static' ? requiredOnnxFiles : []),
+    ]);
+
+    for (const entry of appShellManifest.files) {
+        const normalized = String(entry).replace(/^\.\//, '');
+        if (normalized && normalized !== '.') {
+            expected.add(normalized);
+        }
+    }
+
+    const unexpected = files.filter((file) => !expected.has(file));
+    const missing = [...expected].filter((file) => !files.includes(file));
+    assert(unexpected.length === 0, `Unexpected files in dist (release allowlist violation):\n${unexpected.join('\n')}`);
+    assert(missing.length === 0, `Allowlisted files missing from dist:\n${missing.join('\n')}`);
+}
+
 async function main() {
     const mode = argValue('--mode') || (hasFlag('--mode') ? process.argv[process.argv.indexOf('--mode') + 1] : 'auto');
     const files = await collectFiles(distDir);
-    await assertCommon(files);
+    const appShellManifest = await assertCommon(files);
 
     const resolvedMode = mode === 'auto'
         ? (files.some((file) => file.startsWith('assets/onnx/')) ? 'static' : 'cdn')
@@ -170,6 +257,10 @@ async function main() {
     } else {
         throw new Error(`Unknown verify mode: ${mode}`);
     }
+
+
+    assertExactAllowlist(files, appShellManifest, resolvedMode);
+    await assertReleaseManifest(files, resolvedMode);
 
     console.log(`PASS ${resolvedMode} dist verification (${files.length} files)`);
 }

@@ -40,12 +40,12 @@ Download the Supertonic 3 model assets from Hugging Face:
 npm run assets:download
 ```
 
-This pulls ONNX files and voice styles from `https://huggingface.co/Supertone/supertonic-3` into `supertonic/assets`, which is served by the web app as `/assets` during development.
+This pulls ONNX files and voice styles from the pinned release revision into `supertonic/assets`, which is served by the web app as `/assets` during development. Every download must match the recorded byte length and SHA-256 before it replaces a local asset.
 
 ## Run
 
 ```bash
-npm ci
+npm install
 npm run assets:download
 npm run dev
 ```

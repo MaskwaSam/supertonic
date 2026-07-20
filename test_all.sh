@@ -322,6 +322,7 @@ run_test() {
     local safe_name
     safe_name=$(printf "%s" "$name" | tr -cs 'A-Za-z0-9._-' '_')
     local log_file="$LOG_DIR/${safe_name}.log"
+    local wav_baseline="$LOG_DIR/${safe_name}.wav-baseline.json"
 
     echo -e "${BLUE}[$name]${NC} Running inference..."
     cd "$SCRIPT_DIR/$dir"
@@ -332,26 +333,22 @@ run_test() {
     if [[ "$dir" == "cpp/build" ]]; then
         results_dir="$SCRIPT_DIR/cpp/build/results"
     fi
+
+    python3 "$SCRIPT_DIR/tests/validate_wavs.py" snapshot "$results_dir" "$wav_baseline"
     
     # Run command and prefix each output line with the language name
+    local command_ok=false
     if [ "$TEST_TIMEOUT" -gt 0 ] && command -v timeout >/dev/null 2>&1; then
         if timeout "$TEST_TIMEOUT" bash -lc "$cmd" 2>&1 | sed "s/^/[$name] /" | tee "$log_file"; then
-            echo -e "${GREEN}[$name]${NC} ✓ Success"
-
-            # Show statistics
-            show_stats "$name" "$results_dir"
-
-            PASSED+=("$name")
-        else
-            echo -e "${RED}[$name]${NC} ✗ Failed"
-            FAILED+=("$name")
+            command_ok=true
         fi
     elif eval "$cmd" 2>&1 | sed "s/^/[$name] /" | tee "$log_file"; then
-        echo -e "${GREEN}[$name]${NC} ✓ Success"
-        
-        # Show statistics
+        command_ok=true
+    fi
+
+    if [ "$command_ok" = true ] && python3 "$SCRIPT_DIR/tests/validate_wavs.py" validate "$results_dir" "$wav_baseline"; then
+        echo -e "${GREEN}[$name]${NC} ✓ Success (valid, non-silent WAV output)"
         show_stats "$name" "$results_dir"
-        
         PASSED+=("$name")
     else
         echo -e "${RED}[$name]${NC} ✗ Failed"

@@ -1,0 +1,104 @@
+name: SDK CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  repository-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n test_all.sh tests/conformance/run.sh
+      - name: Python source syntax
+        run: python3 -m py_compile py/example_onnx.py py/helper.py py/text_utils.py py/test_conformance.py tests/validate_wavs.py
+
+  web-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Web syntax and model-free unit tests
+        working-directory: web
+        run: npm run test:ci
+      - name: Install Chromium for model-free browser tests
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Model-free browser interactions
+        working-directory: web
+        run: npm run test:e2e
+      - name: Build and verify CDN distribution
+        working-directory: web
+        run: |
+          npm run build:cdn
+          node scripts/verify-dist.mjs --mode cdn
+
+  sdk-light-matrix:
+    name: Model-free ${{ matrix.sdk }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [python, node, go, rust, cpp, dart]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        if: matrix.sdk == 'python'
+        with:
+          python-version: "3.12"
+      - name: Python conformance
+        if: matrix.sdk == 'python'
+        run: python3 py/test_conformance.py
+
+      - uses: actions/setup-node@v4
+        if: matrix.sdk == 'node'
+        with:
+          node-version: "20"
+      - name: Node syntax and conformance
+        if: matrix.sdk == 'node'
+        working-directory: nodejs
+        run: npm test
+
+      - uses: actions/setup-go@v5
+        if: matrix.sdk == 'go'
+        with:
+          go-version: "1.21.x"
+          cache-dependency-path: go/go.sum
+      - name: Go conformance
+        if: matrix.sdk == 'go'
+        working-directory: go
+        run: go test ./textutil
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.sdk == 'rust'
+      - name: Rust conformance
+        if: matrix.sdk == 'rust'
+        run: |
+          rustc --edition=2021 --test rust/src/conformance.rs -o /tmp/supertonic-rust-conformance
+          /tmp/supertonic-rust-conformance
+
+      - name: C++ conformance
+        if: matrix.sdk == 'cpp'
+        run: |
+          c++ -std=c++17 -Wall -Wextra -pedantic cpp/text_utils.cpp cpp/test_text_utils.cpp -o /tmp/supertonic-cpp-conformance
+          /tmp/supertonic-cpp-conformance tests/conformance/conformance.json
+
+      - uses: dart-lang/setup-dart@v1
+        if: matrix.sdk == 'dart'
+      - name: Flutter selector and Dart conformance
+        if: matrix.sdk == 'dart'
+        run: |
+          node flutter/test/language_selector_static_test.mjs
+          dart flutter/test/text_utils_test.dart

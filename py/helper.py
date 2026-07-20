@@ -10,6 +10,8 @@ import onnxruntime as ort
 
 import re
 
+from text_utils import chunk_text
+
 AVAILABLE_LANGS = ["en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hi", "hr", "hu", "id", "it", "lt", "lv", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "tr", "uk", "vi"]
 
 
@@ -388,47 +390,3 @@ def sanitize_filename(text: str, max_len: int) -> str:
     # \w matches Unicode word characters (letters, digits, underscore) with re.UNICODE
     # We replace non-word characters except keeping existing underscores
     return re.sub(r"[^\w]", "_", prefix, flags=re.UNICODE)
-
-
-def chunk_text(text: str, max_len: int = 300) -> list[str]:
-    """
-    Split text into chunks by paragraphs and sentences.
-
-    Args:
-        text: Input text to chunk
-        max_len: Maximum length of each chunk (default: 300)
-
-    Returns:
-        List of text chunks
-    """
-    import re
-
-    # Split by paragraph (two or more newlines)
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", text.strip()) if p.strip()]
-
-    chunks = []
-
-    for paragraph in paragraphs:
-        paragraph = paragraph.strip()
-        if not paragraph:
-            continue
-
-        # Split by sentence boundaries (period, question mark, exclamation mark followed by space)
-        # But exclude common abbreviations like Mr., Mrs., Dr., etc. and single capital letters like F.
-        pattern = r"(?<!Mr\.)(?<!Mrs\.)(?<!Ms\.)(?<!Dr\.)(?<!Prof\.)(?<!Sr\.)(?<!Jr\.)(?<!Ph\.D\.)(?<!etc\.)(?<!e\.g\.)(?<!i\.e\.)(?<!vs\.)(?<!Inc\.)(?<!Ltd\.)(?<!Co\.)(?<!Corp\.)(?<!St\.)(?<!Ave\.)(?<!Blvd\.)(?<!\b[A-Z]\.)(?<=[.!?])\s+"
-        sentences = re.split(pattern, paragraph)
-
-        current_chunk = ""
-
-        for sentence in sentences:
-            if len(current_chunk) + len(sentence) + 1 <= max_len:
-                current_chunk += (" " if current_chunk else "") + sentence
-            else:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence
-
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-
-    return chunks

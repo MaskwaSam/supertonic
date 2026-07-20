@@ -1,8 +1,14 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { cp, mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import {
+    LEGAL_FILES,
+    ONNX_RUNTIME_FILES,
+    REQUIRED_ONNX_FILES,
+    REQUIRED_VOICE_STYLE_FILES,
+} from './package-config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(__dirname, '..');
@@ -14,27 +20,9 @@ const distDir = path.join(webDir, 'dist');
 const distAssetsDir = path.join(distDir, 'assets');
 const distSupertonicRuntimeDir = path.join(distDir, 'onnx-runtime');
 
-const requiredVoiceStyles = [
-    'F1.json',
-    'F2.json',
-    'F3.json',
-    'F4.json',
-    'F5.json',
-    'M1.json',
-    'M2.json',
-    'M3.json',
-    'M4.json',
-    'M5.json'
-];
-
 const requiredAssets = [
-    'onnx/tts.json',
-    'onnx/unicode_indexer.json',
-    'onnx/duration_predictor.onnx',
-    'onnx/text_encoder.onnx',
-    'onnx/vector_estimator.onnx',
-    'onnx/vocoder.onnx',
-    ...requiredVoiceStyles.map((voiceStyle) => `voice_styles/${voiceStyle}`),
+    ...REQUIRED_ONNX_FILES.map((file) => `onnx/${file}`),
+    ...REQUIRED_VOICE_STYLE_FILES.map((file) => `voice_styles/${file}`),
 ];
 
 async function assertFile(relativePath) {
@@ -75,16 +63,7 @@ async function copyFileByStream(sourcePath, destinationPath) {
 
 async function copyOnnxRuntime(sourceDir, destinationDir, label) {
     await mkdir(destinationDir, { recursive: true });
-    const onnxRuntimeFiles = [
-        { source: 'ort-wasm-simd-threaded.mjs', destination: 'ort-wasm-simd-threaded.mjs' },
-        { source: 'ort-wasm-simd-threaded.mjs', destination: 'ort-wasm-simd-threaded.js' },
-        { source: 'ort-wasm-simd-threaded.wasm', destination: 'ort-wasm-simd-threaded.wasm' },
-        { source: 'ort-wasm-simd-threaded.jsep.mjs', destination: 'ort-wasm-simd-threaded.jsep.mjs' },
-        { source: 'ort-wasm-simd-threaded.jsep.mjs', destination: 'ort-wasm-simd-threaded.jsep.js' },
-        { source: 'ort-wasm-simd-threaded.jsep.wasm', destination: 'ort-wasm-simd-threaded.jsep.wasm' },
-    ];
-
-    for (const { source, destination } of onnxRuntimeFiles) {
+    for (const { source, destination } of ONNX_RUNTIME_FILES) {
         const onnxRuntimeFilePath = path.join(sourceDir, source);
         const onnxRuntimeFileStat = await stat(onnxRuntimeFilePath);
         if (!onnxRuntimeFileStat.isFile() || onnxRuntimeFileStat.size === 0) {
@@ -94,6 +73,21 @@ async function copyOnnxRuntime(sourceDir, destinationDir, label) {
             onnxRuntimeFilePath,
             path.join(destinationDir, destination)
         );
+    }
+}
+
+async function copyExactAsset(relativePath) {
+    const sourcePath = path.join(sourceAssetsDir, relativePath);
+    const destinationPath = path.join(distAssetsDir, relativePath);
+    await mkdir(path.dirname(destinationPath), { recursive: true });
+    await copyFileByStream(sourcePath, destinationPath);
+}
+
+async function copyLegalFiles() {
+    for (const { source, destination } of LEGAL_FILES) {
+        const sourcePath = path.resolve(webDir, source);
+        await assertFile(path.relative(sourceAssetsDir, sourcePath));
+        await copyFileByStream(sourcePath, path.join(distDir, destination));
     }
 }
 
@@ -146,15 +140,11 @@ async function main() {
     }
 
     await mkdir(distAssetsDir, { recursive: true });
-    await cp(path.join(sourceAssetsDir, 'onnx'), path.join(distAssetsDir, 'onnx'), {
-        recursive: true,
-        force: true
-    });
-    await cp(path.join(sourceAssetsDir, 'voice_styles'), path.join(distAssetsDir, 'voice_styles'), {
-        recursive: true,
-        force: true
-    });
+    for (const asset of requiredAssets) {
+        await copyExactAsset(asset);
+    }
     await copyOnnxRuntime(supertonicOnnxRuntimeDistDir, distSupertonicRuntimeDir, 'Supertonic');
+    await copyLegalFiles();
     await removeFinderConflictCopies(distDir);
     await removeUnusedViteRuntimeWasmCopies();
 
@@ -164,7 +154,6 @@ async function main() {
         "# Mr.Patterson's Reader Static Bundle",
         '',
         'Upload this folder to any static web server or Moodle File resource and open `index.html` over HTTP or HTTPS.',
-        'Open `voices.html` from the same folder to hear all 10 bundled voice examples.',
         '',
         'This self-contained bundle loads Supertonic models from the bundled `assets/` folder. It does not require the Hugging Face CDN after upload.',
         '',

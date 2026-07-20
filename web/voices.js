@@ -4,6 +4,12 @@ import {
     writeWavFile
 } from './helper.js';
 import { normalizeForSpeech } from './speech-normalizer.js';
+import {
+    MAX_PREVIEW_CHARACTERS,
+    MODEL_DOWNLOAD_MIB,
+    assertTextWithinLimit,
+    dataSaverEnabled,
+} from './runtime-policy.js';
 
 const DEFAULT_ASSET_BASE_URL = 'assets';
 const SAMPLE_SILENCE_SECONDS = 0.35;
@@ -31,6 +37,8 @@ let sequenceToken = 0;
 let generationToken = 0;
 let bulkGenerationActive = false;
 let modelSourceLabel = '';
+let modelLoadPromise = null;
+let lastProgressAnnouncementAt = 0;
 
 const styleCache = new Map();
 const audioCache = new Map();
@@ -44,7 +52,9 @@ const playAllButton = document.getElementById('playAllButton');
 const generateAllButton = document.getElementById('generateAllButton');
 const stopButton = document.getElementById('stopButton');
 const statusBox = document.getElementById('statusBox');
+const voiceStatusText = document.getElementById('voiceStatusText');
 const voiceGrid = document.getElementById('voiceGrid');
+const voiceProgress = document.getElementById('voiceProgress');
 
 function normalizeAssetBaseUrls(value) {
     const urls = String(value || DEFAULT_ASSET_BASE_URL)
@@ -71,8 +81,30 @@ function sourceLabel(baseUrl) {
 }
 
 function setStatus(message, type = 'info') {
-    statusBox.textContent = message;
+    voiceStatusText.textContent = message;
     statusBox.className = `status-box ${type}`;
+}
+
+function setProgress(value = 0, max = 1, label = '') {
+    const safeMax = Number.isFinite(max) && max > 0 ? max : 1;
+    voiceProgress.max = safeMax;
+    voiceProgress.value = Math.max(0, Math.min(Number(value) || 0, safeMax));
+    voiceProgress.hidden = !label;
+    statusBox.setAttribute('aria-busy', String(Boolean(label && voiceProgress.value < safeMax)));
+    if (label) {
+        voiceProgress.setAttribute('aria-label', label);
+    } else {
+        voiceProgress.removeAttribute('aria-label');
+    }
+}
+
+function setThrottledProgressStatus(message, value, max, { force = false } = {}) {
+    setProgress(value, max, message);
+    const now = Date.now();
+    if (force || now - lastProgressAnnouncementAt >= 750 || value >= max) {
+        lastProgressAnnouncementAt = now;
+        setStatus(message);
+    }
 }
 
 function setBusy(nextBusy) {
@@ -118,7 +150,7 @@ function currentSignature() {
 
 function getSteps() {
     const steps = Number.parseInt(stepInput.value, 10);
-    return Number.isFinite(steps) ? Math.max(1, Math.min(20, steps)) : 6;
+    return Number.isFinite(steps) ? Math.max(1, Math.min(50, steps)) : 8;
 }
 
 function getSpeed() {
@@ -142,6 +174,26 @@ async function ensureModel() {
         return;
     }
 
+    if (modelLoadPromise) {
+        await modelLoadPromise;
+        return;
+    }
+
+    modelLoadPromise = loadModelFromConfiguredSources();
+    try {
+        await modelLoadPromise;
+    } finally {
+        modelLoadPromise = null;
+    }
+}
+
+async function loadModelFromConfiguredSources() {
+    const saveDataNote = dataSaverEnabled()
+        ? ' Data Saver is on; this explicit action starts the download.'
+        : '';
+    setStatus(`Loading approximately ${MODEL_DOWNLOAD_MIB} MiB of model data.${saveDataNote}`);
+    setProgress(0, 5, 'Loading Supertonic model data');
+
     let lastError = null;
     for (const baseUrl of modelSourceBaseUrls) {
         const label = sourceLabel(baseUrl);
@@ -150,6 +202,7 @@ async function ensureModel() {
             const result = await loadWithBestProvider(assetUrl(baseUrl, 'onnx'), label);
             textToSpeech = result.textToSpeech;
             modelSourceLabel = label;
+            setProgress(5, 5, 'Supertonic model ready');
             setStatus(`Model ready from ${label}.`, 'success');
             return;
         } catch (error) {
@@ -162,6 +215,7 @@ async function ensureModel() {
     const sourceHint = /^https?:\/\//.test(firstSource)
         ? 'Check that the browser can reach the configured Hugging Face model source.'
         : 'Serve this folder over HTTP or HTTPS and keep the assets/onnx folder next to voices.html.';
+    setProgress();
     throw new Error(`Could not load Supertonic model assets. ${sourceHint} ${lastError?.message || ''}`.trim());
 }
 
@@ -173,7 +227,12 @@ async function loadWithBestProvider(onnxBaseUrl, label) {
                 executionProviders: ['webgpu'],
                 graphOptimizationLevel: 'all'
             },
-            (modelName, current, total) => setStatus(`Loading ${label} model ${current}/${total}: ${modelName}`)
+            (modelName, current, total) => setThrottledProgressStatus(
+                `Loading ${label} model ${current}/${total}: ${modelName}`,
+                current,
+                total + 1,
+                { force: true }
+            )
         );
     } catch (webgpuError) {
         console.warn('WebGPU load failed for voice examples; falling back to WebAssembly.', webgpuError);
@@ -183,7 +242,12 @@ async function loadWithBestProvider(onnxBaseUrl, label) {
                 executionProviders: ['wasm'],
                 graphOptimizationLevel: 'all'
             },
-            (modelName, current, total) => setStatus(`Loading ${label} model ${current}/${total}: ${modelName}`)
+            (modelName, current, total) => setThrottledProgressStatus(
+                `Loading ${label} model ${current}/${total}: ${modelName}`,
+                current,
+                total + 1,
+                { force: true }
+            )
         );
     }
 }
@@ -219,8 +283,14 @@ async function generateVoice(voice, token = generationToken) {
     if (!text) {
         throw new Error('Enter preview text first.');
     }
+    assertTextWithinLimit(text, MAX_PREVIEW_CHARACTERS, 'Preview text');
 
-    await ensureModel();
+    try {
+        await ensureModel();
+    } catch (error) {
+        assertCurrentGeneration(token);
+        throw error;
+    }
     assertCurrentGeneration(token);
     const style = await voiceStyle(voice);
     assertCurrentGeneration(token);
@@ -236,7 +306,12 @@ async function generateVoice(voice, token = generationToken) {
         getSpeed(),
         (step, total) => {
             if (token === generationToken) {
-                setStatus(`${voice.label}: denoising ${step}/${total}`);
+                setThrottledProgressStatus(
+                    `${voice.label}: denoising ${step}/${total}`,
+                    step,
+                    total,
+                    { force: step === total }
+                );
             }
         }
     );
@@ -300,6 +375,8 @@ function playAudio(audio) {
 
 async function playVoice(voice) {
     const token = ++generationToken;
+    bulkGenerationActive = true;
+    updateStopButton();
     try {
         sequenceToken += 1;
         await ensureAudioContext();
@@ -307,6 +384,7 @@ async function playVoice(voice) {
         setBusy(true);
         const audio = await generateVoice(voice, token);
         assertCurrentGeneration(token);
+        bulkGenerationActive = false;
         setBusy(false);
         setStatus(`Playing ${voice.label}.`);
         const completed = await playAudio(audio);
@@ -321,6 +399,11 @@ async function playVoice(voice) {
         } else {
             setStatus(error.message, 'error');
         }
+    } finally {
+        if (token === generationToken) {
+            bulkGenerationActive = false;
+        }
+        updateStopButton();
     }
 }
 
@@ -362,16 +445,21 @@ async function generateAllVoices() {
 
 async function playAllVoices() {
     const token = ++sequenceToken;
+    const activeGenerationToken = ++generationToken;
     stopActiveSource();
+    bulkGenerationActive = true;
+    updateStopButton();
     try {
         await ensureAudioContext();
         setBusy(true);
-        for (const voice of voices) {
-            if (token !== sequenceToken) {
+        for (let index = 0; index < voices.length; index += 1) {
+            const voice = voices[index];
+            if (token !== sequenceToken || activeGenerationToken !== generationToken) {
                 break;
             }
-            const audio = await generateVoice(voice);
-            if (token !== sequenceToken) {
+            setProgress(index, voices.length, `Preparing voice ${index + 1} of ${voices.length}`);
+            const audio = await generateVoice(voice, activeGenerationToken);
+            if (token !== sequenceToken || activeGenerationToken !== generationToken) {
                 break;
             }
             setStatus(`Playing ${voice.label}.`);
@@ -381,16 +469,23 @@ async function playAllVoices() {
             }
             await appendSilence();
         }
-        if (token === sequenceToken) {
+        if (token === sequenceToken && activeGenerationToken === generationToken) {
+            setProgress(voices.length, voices.length, 'All voice previews complete');
             setStatus('Finished all 10 voice previews.', 'success');
         }
     } catch (error) {
-        setStatus(error.message, 'error');
+        if (error.name === 'AbortError') {
+            setStatus('Stopped.');
+        } else {
+            setStatus(error.message, 'error');
+        }
     } finally {
         setBusy(false);
-        if (token === sequenceToken) {
+        if (token === sequenceToken && activeGenerationToken === generationToken) {
             setActiveVoice(null);
+            bulkGenerationActive = false;
         }
+        updateStopButton();
     }
 }
 
@@ -461,9 +556,14 @@ playAllButton.addEventListener('click', playAllVoices);
 generateAllButton.addEventListener('click', generateAllVoices);
 stopButton.addEventListener('click', () => {
     stopPlayback();
+    setProgress();
     setStatus('Stopped.');
 });
 
 window.addEventListener('beforeunload', stopPlayback);
 
 renderVoices();
+const saveDataMessage = dataSaverEnabled()
+    ? ' Data Saver is on; the download starts only after a play or generate action.'
+    : '';
+setStatus(`Ready. The approximately ${MODEL_DOWNLOAD_MIB} MiB model loads on your first play or generate action.${saveDataMessage}`);

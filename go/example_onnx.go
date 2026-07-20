@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"supertonic-tts/textutil"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
@@ -83,6 +84,13 @@ func main() {
 	textList := args.text
 	langList := args.lang
 	batch := args.batch
+
+	if err := textutil.ValidateCLI(textutil.CLIInputs{
+		TotalStep: totalStep, Speed: args.speed, NTest: nTest, Text: textList, Lang: langList,
+	}); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(2)
+	}
 
 	if batch {
 		if len(voiceStylePaths) != len(textList) {

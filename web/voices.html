@@ -19,7 +19,8 @@
             <section class="sample-panel">
                 <div class="sample-copy">
                     <label for="sampleText">Preview text</label>
-                    <textarea id="sampleText">Welcome to Supertonic Reader. This short preview lets you compare each bundled voice using the same sentence.</textarea>
+                    <textarea id="sampleText" maxlength="2000" aria-describedby="previewTextHint">Welcome to Supertonic Reader. This short preview lets you compare each bundled voice using the same sentence.</textarea>
+                    <small id="previewTextHint">2,000-character maximum. The approximately 380 MiB model loads on first use.</small>
                 </div>
                 <div class="settings-grid">
                     <label>
@@ -35,7 +36,7 @@
                     </label>
                     <label>
                         <span>Steps</span>
-                        <input id="stepInput" type="number" min="1" max="20" value="6">
+                        <input id="stepInput" type="number" min="1" max="50" value="8">
                     </label>
                     <label>
                         <span>Speed</span>
@@ -50,7 +51,10 @@
                     <button id="generateAllButton" type="button">Generate all previews</button>
                     <button id="stopButton" type="button" disabled>Stop</button>
                 </div>
-                <div id="statusBox" class="status-box" role="status" aria-live="polite">Ready. Choose a voice or play all voices.</div>
+                <div id="statusBox" class="status-box" role="status" aria-live="polite" aria-busy="false">
+                    <span id="voiceStatusText">Ready. The model loads on your first play or generate action.</span>
+                    <progress id="voiceProgress" max="1" value="0" hidden></progress>
+                </div>
             </section>
 
             <section id="voiceGrid" class="voice-grid" aria-label="Bundled voice examples"></section>

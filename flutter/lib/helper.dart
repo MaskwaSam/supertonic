@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
+import 'text_utils.dart';
 
 final logger = Logger(
   printer: PrettyPrinter(methodCount: 0, errorMethodCount: 5, lineLength: 80),
@@ -296,15 +297,16 @@ class TextToSpeech {
           speed: speed);
       final wav = _safeCast<double>(result['wav']);
       final duration = _safeCast<double>(result['duration']);
+      final wavChunk = trimWaveform(wav, duration[0], sampleRate);
 
       if (wavCat == null) {
-        wavCat = wav;
+        wavCat = wavChunk;
         durCat = duration[0];
       } else {
         wavCat = [
           ...wavCat,
           ...List<double>.filled((silenceDuration * sampleRate).floor(), 0.0),
-          ...wav
+          ...wavChunk
         ];
         durCat += duration[0] + silenceDuration;
       }
@@ -460,33 +462,7 @@ class TextToSpeech {
   }
 
   List<String> _chunkText(String text, {int maxLen = 300}) {
-    final paragraphs = text
-        .trim()
-        .split(RegExp(r'\n\s*\n+'))
-        .where((p) => p.trim().isNotEmpty)
-        .toList();
-
-    final chunks = <String>[];
-    for (var paragraph in paragraphs) {
-      paragraph = paragraph.trim();
-      if (paragraph.isEmpty) continue;
-
-      final sentences = paragraph.split(RegExp(
-          r'(?<!Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.)(?<!\b[A-Z]\.)(?<=[.!?])\s+'));
-
-      var currentChunk = '';
-      for (final sentence in sentences) {
-        if (currentChunk.length + sentence.length + 1 <= maxLen) {
-          currentChunk += (currentChunk.isNotEmpty ? ' ' : '') + sentence;
-        } else {
-          if (currentChunk.isNotEmpty) chunks.add(currentChunk.trim());
-          currentChunk = sentence;
-        }
-      }
-      if (currentChunk.isNotEmpty) chunks.add(currentChunk.trim());
-    }
-
-    return chunks;
+    return chunkText(text, maxLen: maxLen);
   }
 
   List<T> _safeCast<T>(dynamic raw) {

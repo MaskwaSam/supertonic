@@ -19,15 +19,21 @@ High-performance text-to-speech inference using ONNX Runtime.
 ## Requirements
 
 - C++17 compiler, CMake 3.15+
+- Build discovery: pkg-config
 - Libraries: ONNX Runtime, nlohmann/json
 
 ## Installation
 
-**Ubuntu/Debian:**
-> ⚠️ **Note:** Installation instructions not yet verified.
+**macOS (Homebrew):**
 
 ```bash
-sudo apt-get install -y cmake g++ nlohmann-json3-dev
+brew install cmake pkg-config nlohmann-json onnxruntime
+```
+
+**Ubuntu/Debian (community setup; not exercised by this repository's automated checks):**
+
+```bash
+sudo apt-get install -y cmake g++ pkg-config nlohmann-json3-dev
 wget https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-linux-x64-1.16.3.tgz
 tar -xzf onnxruntime-linux-x64-1.16.3.tgz
 sudo cp -r onnxruntime-linux-x64-1.16.3/include/* /usr/local/include/
@@ -35,13 +41,7 @@ sudo cp -r onnxruntime-linux-x64-1.16.3/lib/* /usr/local/lib/
 sudo ldconfig
 ```
 
-**macOS:**
-```bash
-brew install cmake nlohmann-json onnxruntime
-```
-
-**Windows (vcpkg):**
-> ⚠️ **Note:** Installation instructions not yet verified.
+**Windows with vcpkg (community setup; not exercised by this repository's automated checks):**
 
 ```powershell
 vcpkg install nlohmann-json:x64-windows onnxruntime:x64-windows
@@ -50,13 +50,16 @@ vcpkg integrate install
 
 ## Building
 
+From `supertonic/cpp`, use the same CMake layout as the repository test harness:
+
 ```bash
-cd cpp
-mkdir -p build && cd build
-cmake ..
-cmake --build . --config Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+cd build
 ./example_onnx
 ```
+
+Run the executable from `build/` so its default `../../assets` paths resolve to `supertonic/assets`.
 
 ## Basic Usage
 

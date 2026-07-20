@@ -132,6 +132,10 @@ h1 {
     background: #b33a30;
 }
 
+.source-badge.deferred {
+    background: #5d6b7a;
+}
+
 .status-box {
     min-height: 48px;
     display: flex;
@@ -143,6 +147,18 @@ h1 {
     background: #edf6ff;
     color: #174f8a;
     font-size: 0.94rem;
+    gap: 14px;
+    justify-content: space-between;
+}
+
+.status-box > div {
+    min-width: 0;
+}
+
+.status-box progress {
+    width: min(260px, 32vw);
+    min-width: 140px;
+    accent-color: currentColor;
 }
 
 .status-phase {
@@ -211,6 +227,12 @@ label {
     color: #34495e;
     font-size: 0.88rem;
     font-weight: 700;
+}
+
+.field-hint {
+    color: #66788a;
+    font-size: 0.78rem;
+    line-height: 1.35;
 }
 
 input[type="file"],
@@ -304,6 +326,7 @@ button.primary {
     border-color: #245f9f;
     background: #245f9f;
     color: #fff;
+
 }
 
 button.primary:hover:not(:disabled) {
@@ -520,15 +543,23 @@ button.primary:hover:not(:disabled) {
 }
 
 .reader-chunk {
+    width: 100%;
     display: block;
     margin: 0 0 12px;
     padding: 10px 12px;
     border-left: 4px solid transparent;
+    border-top-color: transparent;
+    border-right-color: transparent;
+    border-bottom-color: transparent;
     border-radius: 8px;
+    background: transparent;
     color: #26323f;
     cursor: pointer;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    font-weight: 400;
+    line-height: inherit;
+    text-align: left;
     transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
 }
 
@@ -640,6 +671,15 @@ button.primary:hover:not(:disabled) {
         grid-template-columns: 1fr;
     }
 
+    .status-box {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .status-box progress {
+        width: 100%;
+    }
+
     .stats-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -670,5 +710,16 @@ button.primary:hover:not(:disabled) {
         height: 48px;
         min-height: 48px;
         box-shadow: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
     }
 }

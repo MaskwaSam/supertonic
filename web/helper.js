@@ -1,4 +1,11 @@
 import * as ort from 'onnxruntime-web';
+import {
+    MAX_READER_CHARACTERS,
+    assertTextWithinLimit,
+    splitUnicode,
+    unicodeLength,
+    validateVoiceStyleObject,
+} from './runtime-policy.js';
 
 if (typeof document !== 'undefined') {
     const runtimeBaseUrl = new URL('onnx-runtime/', document.baseURI);
@@ -334,6 +341,7 @@ export class TextToSpeech {
         this.dpOrt = null;
         this.textEncOrt = null;
         this.vectorEstOrt = null;
+
         this.vocoderOrt = null;
         await Promise.allSettled(sessions.map((session) => session?.release?.()));
     }
@@ -553,17 +561,24 @@ export class TextToSpeech {
  */
 export async function loadVoiceStyle(voiceStylePaths, verbose = false) {
     const bsz = voiceStylePaths.length;
-    
-    // Read first file to get dimensions
-    const firstResponse = await fetchWithRetry(voiceStylePaths[0], { mode: 'cors' });
-    if (!firstResponse.ok) {
-        throw new Error(`Could not load ${voiceStylePaths[0]}: ${firstResponse.status} ${firstResponse.statusText}`.trim());
+
+    if (!Number.isSafeInteger(bsz) || bsz < 1) {
+        throw new Error('At least one voice style path is required.');
     }
-    const firstStyle = await firstResponse.json();
-    
-    const ttlDims = firstStyle.style_ttl.dims;
-    const dpDims = firstStyle.style_dp.dims;
-    
+
+    const styles = [];
+    for (const voiceStylePath of voiceStylePaths) {
+        const response = await fetchWithRetry(voiceStylePath, { mode: 'cors' });
+        if (!response.ok) {
+            throw new Error(`Could not load ${voiceStylePath}: ${response.status} ${response.statusText}`.trim());
+        }
+        const voiceStyle = await response.json();
+        const flattened = validateVoiceStyleObject(voiceStyle);
+        styles.push({ voiceStyle, flattened });
+    }
+
+    const ttlDims = styles[0].voiceStyle.style_ttl.dims;
+    const dpDims = styles[0].voiceStyle.style_dp.dims;
     const ttlDim1 = ttlDims[1];
     const ttlDim2 = ttlDims[2];
     const dpDim1 = dpDims[1];
@@ -575,21 +590,12 @@ export async function loadVoiceStyle(voiceStylePaths, verbose = false) {
     const ttlFlat = new Float32Array(ttlSize);
     const dpFlat = new Float32Array(dpSize);
     
-    // Fill in the data
     for (let i = 0; i < bsz; i++) {
-        const response = await fetchWithRetry(voiceStylePaths[i], { mode: 'cors' });
-        if (!response.ok) {
-            throw new Error(`Could not load ${voiceStylePaths[i]}: ${response.status} ${response.statusText}`.trim());
-        }
-        const voiceStyle = await response.json();
-        
-        // Flatten TTL data
-        const ttlData = voiceStyle.style_ttl.data.flat(Infinity);
+        const ttlData = styles[i].flattened.style_ttl;
         const ttlOffset = i * ttlDim1 * ttlDim2;
         ttlFlat.set(ttlData, ttlOffset);
-        
-        // Flatten DP data
-        const dpData = voiceStyle.style_dp.data.flat(Infinity);
+
+        const dpData = styles[i].flattened.style_dp;
         const dpOffset = i * dpDim1 * dpDim2;
         dpFlat.set(dpData, dpOffset);
     }
@@ -706,6 +712,7 @@ export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCal
             throw new LoadCancelledError();
         }
 
+
         const textToSpeech = new TextToSpeech(cfgs, textProcessor, dpOrt, textEncOrt, vectorEstOrt, vocoderOrt);
 
         return { textToSpeech, cfgs };
@@ -718,16 +725,64 @@ export async function loadTextToSpeech(onnxDir, sessionOptions = {}, progressCal
 /**
  * Chunk text into manageable segments
  */
-export function chunkText(text, maxLen = 300) {
+export function chunkText(text, maxLen = 300, maxTextLength = MAX_READER_CHARACTERS) {
     if (typeof text !== 'string') {
         throw new Error(`chunkText expects a string, got ${typeof text}`);
     }
-    
+    if (!Number.isSafeInteger(maxLen) || maxLen < 1) {
+        throw new RangeError('chunkText maxLen must be a positive integer.');
+    }
+    assertTextWithinLimit(text, maxTextLength);
+
     // Split by paragraph (two or more newlines)
     const paragraphs = text.trim().split(/\n\s*\n+/).filter(p => p.trim());
-    
     const chunks = [];
-    
+
+    function appendPart(part, state) {
+        const candidate = state.value ? `${state.value} ${part}` : part;
+        if (unicodeLength(candidate) <= maxLen) {
+            state.value = candidate;
+            return;
+        }
+        if (state.value) {
+            chunks.push(state.value);
+        }
+        state.value = part;
+    }
+
+    function sentenceParts(sentence) {
+        const parts = [];
+        let current = '';
+        for (const word of sentence.split(/\s+/u).filter(Boolean)) {
+            if (unicodeLength(word) > maxLen) {
+                if (current) {
+                    parts.push(current);
+                    current = '';
+                }
+                const hardParts = splitUnicode(word, maxLen);
+                while (hardParts.length > 1) {
+                    parts.push(hardParts.shift());
+                }
+                current = hardParts[0] || '';
+                continue;
+            }
+
+            const candidate = current ? `${current} ${word}` : word;
+            if (unicodeLength(candidate) <= maxLen) {
+                current = candidate;
+            } else {
+                if (current) {
+                    parts.push(current);
+                }
+                current = word;
+            }
+        }
+        if (current) {
+            parts.push(current);
+        }
+        return parts;
+    }
+
     for (let paragraph of paragraphs) {
         paragraph = paragraph.trim();
         if (!paragraph) continue;
@@ -736,51 +791,22 @@ export function chunkText(text, maxLen = 300) {
         // But exclude common abbreviations like Mr., Mrs., Dr., etc. and single capital letters like F.
         const sentences = paragraph.split(/(?<!Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|Sr\.|Jr\.|Ph\.D\.|etc\.|e\.g\.|i\.e\.|vs\.|Inc\.|Ltd\.|Co\.|Corp\.|St\.|Ave\.|Blvd\.)(?<!\b[A-Z]\.)(?<=[.!?])\s+/);
         
-        let currentChunk = "";
-        
+        const state = { value: '' };
+
         for (let sentence of sentences) {
             sentence = sentence.trim();
             if (!sentence) continue;
 
-            if (sentence.length > maxLen) {
-                if (currentChunk) {
-                    chunks.push(currentChunk.trim());
-                    currentChunk = "";
-                }
-
-                const words = sentence.split(/\s+/).filter(Boolean);
-                let wordChunk = "";
-                for (const word of words) {
-                    if (wordChunk.length + word.length + 1 <= maxLen) {
-                        wordChunk += (wordChunk ? " " : "") + word;
-                    } else {
-                        if (wordChunk) {
-                            chunks.push(wordChunk.trim());
-                        }
-                        wordChunk = word;
-                    }
-                }
-                if (wordChunk) {
-                    currentChunk = wordChunk;
-                }
-                continue;
-            }
-
-            if (currentChunk.length + sentence.length + 1 <= maxLen) {
-                currentChunk += (currentChunk ? " " : "") + sentence;
-            } else {
-                if (currentChunk) {
-                    chunks.push(currentChunk.trim());
-                }
-                currentChunk = sentence;
+            for (const part of sentenceParts(sentence)) {
+                appendPart(part, state);
             }
         }
-        
-        if (currentChunk) {
-            chunks.push(currentChunk.trim());
+
+        if (state.value) {
+            chunks.push(state.value);
         }
     }
-    
+
     return chunks;
 }
 

@@ -1,4 +1,5 @@
 #include "helper.h"
+#include "text_utils.h"
 #include <fstream>
 #include <iostream>
 #include <cmath>
@@ -703,14 +704,16 @@ TextToSpeech::SynthesisResult TextToSpeech::call(
     for (const auto& chunk : text_list) {
         auto result = _infer(memory_info, {chunk}, {lang}, style, total_step, speed);
         
+        auto wav_chunk = trimWaveform(result.wav, result.duration[0], sample_rate_);
+
         if (wav_cat.empty()) {
-            wav_cat = result.wav;
+            wav_cat = wav_chunk;
             dur_cat = result.duration[0];
         } else {
             int silence_len = static_cast<int>(silence_duration * sample_rate_);
             std::vector<float> silence(silence_len, 0.0f);
             wav_cat.insert(wav_cat.end(), silence.begin(), silence.end());
-            wav_cat.insert(wav_cat.end(), result.wav.begin(), result.wav.end());
+            wav_cat.insert(wav_cat.end(), wav_chunk.begin(), wav_chunk.end());
             dur_cat += result.duration[0] + silence_duration;
         }
     }
@@ -1115,72 +1118,5 @@ std::string sanitizeFilename(const std::string& text, int max_len) {
 // ============================================================================
 
 std::vector<std::string> chunkText(const std::string& text, int max_len) {
-    std::vector<std::string> chunks;
-    
-    // Split by paragraph (two or more newlines)
-    std::regex paragraph_regex(R"(\n\s*\n+)");
-    std::sregex_token_iterator iter(text.begin(), text.end(), paragraph_regex, -1);
-    std::sregex_token_iterator end;
-    
-    std::vector<std::string> paragraphs;
-    for (; iter != end; ++iter) {
-        std::string para = trim(*iter);
-        if (!para.empty()) {
-            paragraphs.push_back(para);
-        }
-    }
-    
-    // Split by sentence boundaries, excluding abbreviations
-    // This is a simplified version - C++ negative lookbehind is more complex
-    std::regex sentence_regex(R"([.!?]\s+)");
-    
-    for (const auto& paragraph : paragraphs) {
-        std::sregex_token_iterator sent_iter(paragraph.begin(), paragraph.end(), sentence_regex, -1);
-        std::sregex_token_iterator sent_end;
-        
-        std::vector<std::string> sentences;
-        std::string current = "";
-        
-        for (; sent_iter != sent_end; ++sent_iter) {
-            std::string sentence = *sent_iter;
-            if (!sentence.empty()) {
-                // Add back the punctuation
-                if (sent_iter != sent_end) {
-                    std::smatch match;
-                    if (std::regex_search(sent_iter->first, paragraph.end(), match, sentence_regex)) {
-                        sentence += match.str();
-                    }
-                }
-                sentences.push_back(sentence);
-            }
-        }
-        
-        // Combine sentences into chunks
-        std::string current_chunk = "";
-        
-        for (const auto& sentence : sentences) {
-            if (static_cast<int>(current_chunk.length() + sentence.length() + 1) <= max_len) {
-                if (!current_chunk.empty()) {
-                    current_chunk += " ";
-                }
-                current_chunk += sentence;
-            } else {
-                if (!current_chunk.empty()) {
-                    chunks.push_back(trim(current_chunk));
-                }
-                current_chunk = sentence;
-            }
-        }
-        
-        if (!current_chunk.empty()) {
-            chunks.push_back(trim(current_chunk));
-        }
-    }
-    
-    // If no chunks were created, return the original text
-    if (chunks.empty()) {
-        chunks.push_back(trim(text));
-    }
-    
-    return chunks;
+    return chunkTextConform(text, static_cast<std::size_t>(max_len));
 }

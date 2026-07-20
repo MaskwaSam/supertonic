@@ -1,10 +1,16 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { cp, mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import {
+    CDN_ASSET_REVISION as PINNED_CDN_ASSET_REVISION,
+    LEGAL_FILES,
+    ONNX_RUNTIME_FILES,
+    REQUIRED_VOICE_STYLE_FILES,
+} from './package-config.mjs';
 
-const CDN_ASSET_REVISION = process.env.SUPERTONIC_ASSET_REVISION || '724fb5abbf5502583fb520898d45929e62f02c0b';
+const CDN_ASSET_REVISION = process.env.SUPERTONIC_ASSET_REVISION || PINNED_CDN_ASSET_REVISION;
 const CDN_BASE_URL = `https://huggingface.co/Supertone/supertonic-3/resolve/${CDN_ASSET_REVISION}`;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(__dirname, '..');
@@ -15,26 +21,6 @@ const supertonicOnnxRuntimeDistDir = path.join(nodeModulesDir, 'onnxruntime-web/
 const distDir = path.join(webDir, 'dist');
 const distAssetsDir = path.join(distDir, 'assets');
 const distSupertonicRuntimeDir = path.join(distDir, 'onnx-runtime');
-const requiredVoiceStyles = [
-    'F1.json',
-    'F2.json',
-    'F3.json',
-    'F4.json',
-    'F5.json',
-    'M1.json',
-    'M2.json',
-    'M3.json',
-    'M4.json',
-    'M5.json'
-];
-const onnxRuntimeFiles = [
-    { source: 'ort-wasm-simd-threaded.mjs', destination: 'ort-wasm-simd-threaded.mjs' },
-    { source: 'ort-wasm-simd-threaded.mjs', destination: 'ort-wasm-simd-threaded.js' },
-    { source: 'ort-wasm-simd-threaded.wasm', destination: 'ort-wasm-simd-threaded.wasm' },
-    { source: 'ort-wasm-simd-threaded.jsep.mjs', destination: 'ort-wasm-simd-threaded.jsep.mjs' },
-    { source: 'ort-wasm-simd-threaded.jsep.mjs', destination: 'ort-wasm-simd-threaded.jsep.js' },
-    { source: 'ort-wasm-simd-threaded.jsep.wasm', destination: 'ort-wasm-simd-threaded.jsep.wasm' },
-];
 
 async function assertFile(filePath, label) {
     try {
@@ -74,7 +60,7 @@ async function copyFileByStream(sourcePath, destinationPath) {
 async function copyOnnxRuntime() {
     await mkdir(distSupertonicRuntimeDir, { recursive: true });
 
-    for (const { source, destination } of onnxRuntimeFiles) {
+    for (const { source, destination } of ONNX_RUNTIME_FILES) {
         const runtimeFilePath = path.join(supertonicOnnxRuntimeDistDir, source);
         await assertFile(runtimeFilePath, `ONNX Runtime file ${source}`);
         await copyFileByStream(runtimeFilePath, path.join(distSupertonicRuntimeDir, destination));
@@ -85,15 +71,25 @@ async function copyVoiceStyles() {
     const sourceVoiceStylesDir = path.join(sourceAssetsDir, 'voice_styles');
     const distVoiceStylesDir = path.join(distAssetsDir, 'voice_styles');
 
-    for (const voiceStyle of requiredVoiceStyles) {
+    for (const voiceStyle of REQUIRED_VOICE_STYLE_FILES) {
         await assertFile(path.join(sourceVoiceStylesDir, voiceStyle), `Supertonic voice style ${voiceStyle}`);
     }
 
-    await mkdir(distAssetsDir, { recursive: true });
-    await cp(sourceVoiceStylesDir, distVoiceStylesDir, {
-        recursive: true,
-        force: true
-    });
+    await mkdir(distVoiceStylesDir, { recursive: true });
+    for (const voiceStyle of REQUIRED_VOICE_STYLE_FILES) {
+        await copyFileByStream(
+            path.join(sourceVoiceStylesDir, voiceStyle),
+            path.join(distVoiceStylesDir, voiceStyle)
+        );
+    }
+}
+
+async function copyLegalFiles() {
+    for (const { source, destination } of LEGAL_FILES) {
+        const sourcePath = path.resolve(webDir, source);
+        await assertFile(sourcePath, `legal file ${destination}`);
+        await copyFileByStream(sourcePath, path.join(distDir, destination));
+    }
 }
 
 async function removeUnusedViteRuntimeWasmCopies() {
@@ -147,6 +143,7 @@ function assertSupertonicOnly(files) {
 async function main() {
     await copyOnnxRuntime();
     await copyVoiceStyles();
+    await copyLegalFiles();
     await removeFinderConflictCopies(distDir);
     await removeUnusedViteRuntimeWasmCopies();
 
@@ -156,12 +153,11 @@ async function main() {
         '# Supertonic Reader CDN Bundle',
         '',
         'Upload this folder to any static web server or Moodle File resource and open `index.html` over HTTP or HTTPS.',
-        'Open `voices.html` from the same folder to hear all 10 bundled voice examples.',
         '',
         `This CDN bundle loads Supertonic ONNX model files from ${CDN_BASE_URL}.`,
         `Pinned asset revision: ${CDN_ASSET_REVISION}.`,
         '',
-        'It includes the Supertonic app, the voice examples page, ONNX Runtime Web files, and all 10 bundled Supertonic voice styles: F1-F5 and M1-M5.',
+        'It includes the Supertonic app, ONNX Runtime Web files, and all 10 bundled Supertonic voice styles: F1-F5 and M1-M5.',
         '',
         'It intentionally does not include Supertonic ONNX model files or any secondary TTS model.',
         '',

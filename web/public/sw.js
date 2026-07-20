@@ -1,4 +1,12 @@
-const CACHE_NAME = 'supertonic-reader-shell-v9';
+const SERVICE_WORKER_URL = new URL(self.location.href);
+const SCOPE_URL = new URL(self.registration.scope);
+const BUILD_ID = (SERVICE_WORKER_URL.searchParams.get('build') || 'unversioned')
+    .replace(/[^A-Za-z0-9._-]/g, '_');
+const SCOPE_KEY = SCOPE_URL.pathname
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .replace(/^_+|_+$/g, '') || 'root';
+const CACHE_PREFIX = `supertonic-reader-shell:${SCOPE_KEY}:`;
+const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const FALLBACK_APP_SHELL = [
     './',
     './index.html',
@@ -15,6 +23,10 @@ function shouldSkipCache(request) {
     }
 
     if (url.origin !== self.location.origin) {
+        return true;
+    }
+
+    if (!url.href.startsWith(SCOPE_URL.href)) {
         return true;
     }
 
@@ -36,13 +48,12 @@ function isNavigationRequest(request) {
         (request.destination === 'document' && accept.includes('text/html'));
 }
 
-async function updateCache(request, response) {
+async function updateCache(cache, request, response) {
     if (!response || !response.ok || !response.clone) {
         return;
     }
 
     try {
-        const cache = await caches.open(CACHE_NAME);
         await cache.put(request, response.clone());
     } catch (error) {
         console.warn('Supertonic service worker could not update cache.', error);
@@ -84,7 +95,7 @@ self.addEventListener('activate', (event) => {
         caches.keys()
             .then((keys) => Promise.all(
                 keys
-                    .filter((key) => key !== CACHE_NAME)
+                    .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
                     .map((key) => caches.delete(key))
             ))
             .then(() => self.clients.claim())
@@ -97,15 +108,17 @@ self.addEventListener('fetch', (event) => {
     }
 
     event.respondWith(
-        caches.match(event.request).then((cachedResponse) => {
+        caches.open(CACHE_NAME).then(async (cache) => {
+            const cachedResponse = await cache.match(event.request);
             if (isNavigationRequest(event.request)) {
                 return fetch(event.request)
                     .then((response) => {
-                        updateCache(event.request, response);
+                        updateCache(cache, event.request, response);
                         return response;
                     })
                     .catch(async () => {
-                        const offlineResponse = cachedResponse || await caches.match(OFFLINE_FALLBACK_URL);
+                        const fallbackUrl = new URL(OFFLINE_FALLBACK_URL, SCOPE_URL).href;
+                        const offlineResponse = cachedResponse || await cache.match(fallbackUrl);
                         if (offlineResponse) {
                             return offlineResponse;
                         }
@@ -123,7 +136,7 @@ self.addEventListener('fetch', (event) => {
             const networkResponse = fetch(event.request)
                 .then((response) => {
                     if (response.ok) {
-                        updateCache(event.request, response);
+                        updateCache(cache, event.request, response);
                     }
                     return response;
                 })
