@@ -247,7 +247,20 @@ function formatFetchDiagnostics(error) {
 
     if (Array.isArray(diagnostics.attempts)) {
         return diagnostics.attempts
-            .map((attempt) => `${attempt.url} (${attempt.status || 'error'}: ${attempt.error})`)
+            .map((attempt) => {
+                if (typeof attempt === 'string') {
+                    return attempt;
+                }
+                if (attempt?.diagnostic) {
+                    return attempt.url
+                        ? `${attempt.url}: ${attempt.diagnostic}`
+                        : attempt.diagnostic;
+                }
+                const url = attempt?.url || 'asset';
+                const status = attempt?.status || 'error';
+                const errorMessage = attempt?.error || 'unknown error';
+                return `${url} (${status}: ${errorMessage})`;
+            })
             .join(' | ');
     }
 
