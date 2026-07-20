@@ -28,10 +28,12 @@ const requiredVoiceStyles = [
     'M5.json'
 ];
 const onnxRuntimeFiles = [
-    'ort-wasm-simd-threaded.mjs',
-    'ort-wasm-simd-threaded.wasm',
-    'ort-wasm-simd-threaded.jsep.mjs',
-    'ort-wasm-simd-threaded.jsep.wasm'
+    { source: 'ort-wasm-simd-threaded.mjs', destination: 'ort-wasm-simd-threaded.mjs' },
+    { source: 'ort-wasm-simd-threaded.mjs', destination: 'ort-wasm-simd-threaded.js' },
+    { source: 'ort-wasm-simd-threaded.wasm', destination: 'ort-wasm-simd-threaded.wasm' },
+    { source: 'ort-wasm-simd-threaded.jsep.mjs', destination: 'ort-wasm-simd-threaded.jsep.mjs' },
+    { source: 'ort-wasm-simd-threaded.jsep.mjs', destination: 'ort-wasm-simd-threaded.jsep.js' },
+    { source: 'ort-wasm-simd-threaded.jsep.wasm', destination: 'ort-wasm-simd-threaded.jsep.wasm' },
 ];
 
 async function assertFile(filePath, label) {
@@ -72,10 +74,10 @@ async function copyFileByStream(sourcePath, destinationPath) {
 async function copyOnnxRuntime() {
     await mkdir(distSupertonicRuntimeDir, { recursive: true });
 
-    for (const runtimeFile of onnxRuntimeFiles) {
-        const runtimeFilePath = path.join(supertonicOnnxRuntimeDistDir, runtimeFile);
-        await assertFile(runtimeFilePath, `ONNX Runtime file ${runtimeFile}`);
-        await copyFileByStream(runtimeFilePath, path.join(distSupertonicRuntimeDir, runtimeFile));
+    for (const { source, destination } of onnxRuntimeFiles) {
+        const runtimeFilePath = path.join(supertonicOnnxRuntimeDistDir, source);
+        await assertFile(runtimeFilePath, `ONNX Runtime file ${source}`);
+        await copyFileByStream(runtimeFilePath, path.join(distSupertonicRuntimeDir, destination));
     }
 }
 
@@ -153,7 +155,7 @@ async function main() {
     const readme = [
         '# Supertonic Reader CDN Bundle',
         '',
-        'Upload this folder to any static web server and open `index.html` over HTTP or HTTPS.',
+        'Upload this folder to any static web server or Moodle File resource and open `index.html` over HTTP or HTTPS.',
         'Open `voices.html` from the same folder to hear all 10 bundled voice examples.',
         '',
         `This CDN bundle loads Supertonic ONNX model files from ${CDN_BASE_URL}.`,

@@ -8,8 +8,10 @@ const distDir = path.join(webDir, 'dist');
 
 const requiredRuntimeFiles = [
     'onnx-runtime/ort-wasm-simd-threaded.mjs',
+    'onnx-runtime/ort-wasm-simd-threaded.js',
     'onnx-runtime/ort-wasm-simd-threaded.wasm',
     'onnx-runtime/ort-wasm-simd-threaded.jsep.mjs',
+    'onnx-runtime/ort-wasm-simd-threaded.jsep.js',
     'onnx-runtime/ort-wasm-simd-threaded.jsep.wasm',
 ];
 

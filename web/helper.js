@@ -1,7 +1,11 @@
 import * as ort from 'onnxruntime-web';
 
 if (typeof document !== 'undefined') {
-    ort.env.wasm.wasmPaths = new URL('onnx-runtime/', document.baseURI).href;
+    const runtimeBaseUrl = new URL('onnx-runtime/', document.baseURI);
+    ort.env.wasm.wasmPaths = {
+        mjs: new URL('ort-wasm-simd-threaded.jsep.js', runtimeBaseUrl).href,
+        wasm: new URL('ort-wasm-simd-threaded.jsep.wasm', runtimeBaseUrl).href,
+    };
 }
 
 const ASSET_FETCH_TIMEOUT_MS = 20000;

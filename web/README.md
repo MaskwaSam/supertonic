@@ -63,7 +63,7 @@ npm run build:cdn
 The output goes to `web/dist` and includes the app, ONNX Runtime Web files, and all 10 Supertonic voice-style JSON files. It does not include Supertonic ONNX model files or any secondary TTS model. Supertonic model files load from the pinned Hugging Face revision `724fb5abbf5502583fb520898d45929e62f02c0b`.
 The CDN build does not silently fall back to local model files; if the configured CDN cannot be reached, the app reports the CDN failure.
 
-Zip the contents of `web/dist`, upload the ZIP to a static web server, unzip it, and open `index.html` over HTTP or HTTPS. Open `voices.html` from the same folder to hear all 10 voice examples. The bundle uses relative paths, so it can be hosted at the web server root or inside a subfolder.
+Zip the contents of `web/dist`, upload the ZIP to a static web server or Moodle File resource, unzip it, and open `index.html` over HTTP or HTTPS. Open `voices.html` from the same folder to hear all 10 voice examples. The bundle uses relative paths, so it can be hosted at the web server root, inside a subfolder, or inside Moodle's file-serving path.
 
 `npm run build:cdn` also writes `web/dist/README.txt`, which lists the bundled files and the pinned CDN model source. Serve `.mjs` files as JavaScript and `.wasm` files as WebAssembly; do not test production bundles through `file://`.
 

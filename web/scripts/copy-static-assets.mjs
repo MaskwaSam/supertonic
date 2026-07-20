@@ -76,21 +76,23 @@ async function copyFileByStream(sourcePath, destinationPath) {
 async function copyOnnxRuntime(sourceDir, destinationDir, label) {
     await mkdir(destinationDir, { recursive: true });
     const onnxRuntimeFiles = [
-        'ort-wasm-simd-threaded.mjs',
-        'ort-wasm-simd-threaded.wasm',
-        'ort-wasm-simd-threaded.jsep.mjs',
-        'ort-wasm-simd-threaded.jsep.wasm'
+        { source: 'ort-wasm-simd-threaded.mjs', destination: 'ort-wasm-simd-threaded.mjs' },
+        { source: 'ort-wasm-simd-threaded.mjs', destination: 'ort-wasm-simd-threaded.js' },
+        { source: 'ort-wasm-simd-threaded.wasm', destination: 'ort-wasm-simd-threaded.wasm' },
+        { source: 'ort-wasm-simd-threaded.jsep.mjs', destination: 'ort-wasm-simd-threaded.jsep.mjs' },
+        { source: 'ort-wasm-simd-threaded.jsep.mjs', destination: 'ort-wasm-simd-threaded.jsep.js' },
+        { source: 'ort-wasm-simd-threaded.jsep.wasm', destination: 'ort-wasm-simd-threaded.jsep.wasm' },
     ];
 
-    for (const onnxRuntimeFile of onnxRuntimeFiles) {
-        const onnxRuntimeFilePath = path.join(sourceDir, onnxRuntimeFile);
+    for (const { source, destination } of onnxRuntimeFiles) {
+        const onnxRuntimeFilePath = path.join(sourceDir, source);
         const onnxRuntimeFileStat = await stat(onnxRuntimeFilePath);
         if (!onnxRuntimeFileStat.isFile() || onnxRuntimeFileStat.size === 0) {
             throw new Error(`Missing ${label} ONNX Runtime file: ${onnxRuntimeFilePath}`);
         }
         await copyFileByStream(
             onnxRuntimeFilePath,
-            path.join(destinationDir, onnxRuntimeFile)
+            path.join(destinationDir, destination)
         );
     }
 }
@@ -161,7 +163,7 @@ async function main() {
     const readme = [
         "# Mr.Patterson's Reader Static Bundle",
         '',
-        'Upload this folder to any static web server and open `index.html` over HTTP or HTTPS.',
+        'Upload this folder to any static web server or Moodle File resource and open `index.html` over HTTP or HTTPS.',
         'Open `voices.html` from the same folder to hear all 10 bundled voice examples.',
         '',
         'This self-contained bundle loads Supertonic models from the bundled `assets/` folder. It does not require the Hugging Face CDN after upload.',
