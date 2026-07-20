@@ -4,6 +4,7 @@
   "description": "TTS inference using ONNX Runtime for Web Browser",
   "type": "module",
   "scripts": {
+    "assets:download": "node scripts/download-assets.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
