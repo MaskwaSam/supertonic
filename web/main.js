@@ -23,9 +23,12 @@ let currentStyle = null;
 let currentStylePath = DEFAULT_VOICE_STYLE_PATH;
 let activeAssetBaseUrl = ASSET_BASE_URLS[0] || DEFAULT_ASSET_BASE_URL;
 let modelsReady = false;
+let modelLoading = false;
+let modelLoadId = 0;
 
 let runId = 0;
 let runActive = false;
+let generationActive = false;
 let generationComplete = false;
 let playbackComplete = false;
 let isPaused = false;
@@ -43,6 +46,7 @@ let activeSources = [];
 let generatedCount = 0;
 let generatedAudioSeconds = 0;
 let activeChunkIndex = -1;
+let playbackEndIndex = -1;
 let downloadUrl = null;
 
 const fileInput = document.getElementById('fileInput');
@@ -56,9 +60,12 @@ const pauseBtn = document.getElementById('pauseBtn');
 const resumeBtn = document.getElementById('resumeBtn');
 const stopBtn = document.getElementById('stopBtn');
 const downloadBtn = document.getElementById('downloadBtn');
+const useBundledBtn = document.getElementById('useBundledBtn');
 const statusBox = document.getElementById('statusBox');
+const statusPhase = document.getElementById('statusPhase');
 const statusText = document.getElementById('statusText');
 const backendBadge = document.getElementById('backendBadge');
+const modelSourceBadge = document.getElementById('modelSourceBadge');
 const errorBox = document.getElementById('error');
 const reader = document.getElementById('reader');
 const chunkStat = document.getElementById('chunkStat');
@@ -82,6 +89,10 @@ function assetSourceLabel(baseUrl) {
     return /^https?:\/\//.test(baseUrl) ? 'CDN' : 'bundled model';
 }
 
+function isBundledAssetSource(baseUrl = activeAssetBaseUrl) {
+    return !/^https?:\/\//.test(baseUrl);
+}
+
 function getMaxChunkLength(lang) {
     return (lang === 'ko' || lang === 'ja') ? 120 : 300;
 }
@@ -97,9 +108,24 @@ function formatTime(seconds) {
     return `${minutes}:${remainingSeconds}`;
 }
 
-function setStatus(message, type = 'info') {
+function setStatus(message, type = 'info', phase = null) {
+    if (phase) {
+        statusPhase.textContent = phase;
+    }
     statusText.textContent = message;
     statusBox.className = `status-box ${type}`;
+}
+
+function setModelSource(baseUrl, state = 'ready') {
+    const bundled = isBundledAssetSource(baseUrl);
+    const sourceName = bundled ? 'Bundled' : 'CDN';
+    const stateLabel = state === 'loading' ? 'loading' : sourceName;
+
+    modelSourceBadge.textContent = state === 'loading'
+        ? `Model: ${sourceName}...`
+        : `Model: ${stateLabel}`;
+    modelSourceBadge.className = 'source-badge visible';
+    modelSourceBadge.classList.add(bundled ? 'bundled' : 'cdn');
 }
 
 function showError(message) {
@@ -125,6 +151,56 @@ function setControls() {
     speedInput.disabled = runActive;
     fileInput.disabled = runActive;
     textInput.disabled = runActive;
+    useBundledBtn.disabled = runActive || (isBundledAssetSource() && (modelsReady || modelLoading));
+}
+
+function syncGeneratedChunkClasses() {
+    for (const element of chunkElements) {
+        const index = Number(element.dataset.index);
+        const hasGeneratedAudio = Boolean(generatedChunks[index]);
+        element.classList.toggle('generated', hasGeneratedAudio);
+        element.title = hasGeneratedAudio
+            ? 'Double-click to play from this generated chunk'
+            : 'Double-click to generate and play from this chunk';
+    }
+}
+
+function recalculateGeneratedStats() {
+    generatedCount = 0;
+    generatedAudioSeconds = 0;
+
+    for (const generatedChunk of generatedChunks) {
+        if (!generatedChunk) {
+            continue;
+        }
+
+        if (generatedCount > 0) {
+            generatedAudioSeconds += CHUNK_SILENCE_SECONDS;
+        }
+
+        generatedCount += 1;
+        generatedAudioSeconds += generatedChunk.duration;
+    }
+}
+
+function clearGeneratedAudio({ update = true } = {}) {
+    generatedChunks = new Array(chunks.length);
+    generatedCount = 0;
+    generatedAudioSeconds = 0;
+    activeChunkIndex = -1;
+    playbackEndIndex = -1;
+    generationComplete = false;
+    playbackComplete = false;
+    revokeDownloadUrl();
+    for (const element of chunkElements) {
+        element.classList.remove('active', 'complete');
+    }
+    syncGeneratedChunkClasses();
+
+    if (update) {
+        updateStats();
+        setControls();
+    }
 }
 
 function getReaderChunks() {
@@ -143,9 +219,9 @@ function rebuildReaderPreview() {
 
     chunks = getReaderChunks();
     renderReader(chunks);
-    generatedCount = 0;
-    generatedAudioSeconds = 0;
+    clearGeneratedAudio({ update: false });
     updateStats();
+    setControls();
 }
 
 function renderReader(nextChunks) {
@@ -165,12 +241,21 @@ function renderReader(nextChunks) {
         const span = document.createElement('span');
         span.className = 'reader-chunk';
         span.dataset.index = String(index);
+        span.tabIndex = 0;
         span.textContent = chunk;
+        span.addEventListener('dblclick', () => playFromChunk(index));
+        span.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                playFromChunk(index);
+            }
+        });
         chunkElements.push(span);
         fragment.appendChild(span);
     });
 
     reader.appendChild(fragment);
+    syncGeneratedChunkClasses();
 }
 
 function updateReaderHighlight(index) {
@@ -194,10 +279,11 @@ function updateReaderHighlight(index) {
     }
 }
 
-function markCompletedChunks() {
+function markCompletedChunks(endIndex = chunks.length - 1) {
     for (const element of chunkElements) {
+        const elementIndex = Number(element.dataset.index);
         element.classList.remove('active');
-        element.classList.add('complete');
+        element.classList.toggle('complete', elementIndex <= endIndex);
     }
     activeChunkIndex = -1;
 }
@@ -230,6 +316,18 @@ function pcmToAudioBuffer(pcm) {
     return buffer;
 }
 
+function stopActiveSources() {
+    for (const source of activeSources) {
+        try {
+            source.stop();
+        } catch {
+            // The source may have already ended.
+        }
+    }
+
+    activeSources = [];
+}
+
 function scheduleChunk(localRunId, index, wav) {
     const buffer = pcmToAudioBuffer(wav);
     const source = audioContext.createBufferSource();
@@ -250,6 +348,7 @@ function scheduleChunk(localRunId, index, wav) {
     source.start(startTime);
     activeSources.push(source);
     scheduledChunks.push({ index, start: startTime, end: endTime, source });
+    playbackEndIndex = index;
 
     if (firstStartTime === null) {
         firstStartTime = startTime;
@@ -290,12 +389,13 @@ function startPlaybackLoop(localRunId) {
         }
 
         const lastScheduled = scheduledChunks[scheduledChunks.length - 1];
+        const reachedEndOfText = generationComplete && lastScheduled?.index === chunks.length - 1;
+        const reachedEndOfAvailableAudio = !generationActive && lastScheduled?.index === playbackEndIndex;
         if (
-            generationComplete &&
             lastScheduled &&
-            scheduledChunks.length === chunks.length &&
             now >= lastScheduled.end &&
-            !isPaused
+            !isPaused &&
+            (reachedEndOfText || reachedEndOfAvailableAudio)
         ) {
             finishPlayback();
             animationFrameId = null;
@@ -328,21 +428,15 @@ function buildDownload() {
 
     const sampleRate = textToSpeech.sampleRate;
     const silenceSamples = Math.floor(CHUNK_SILENCE_SECONDS * sampleRate);
-    const totalSamples = generatedChunks.reduce((total, chunk, index) => {
-        if (!chunk) {
-            return total;
-        }
-        return total + chunk.wav.length + (index > 0 ? silenceSamples : 0);
-    }, 0);
+    const chunksForDownload = generatedChunks.filter(Boolean);
+    const totalSamples = chunksForDownload.reduce((total, chunk, index) => (
+        total + chunk.wav.length + (index > 0 ? silenceSamples : 0)
+    ), 0);
 
     const combined = new Float32Array(totalSamples);
     let offset = 0;
 
-    generatedChunks.forEach((chunk, index) => {
-        if (!chunk) {
-            return;
-        }
-
+    chunksForDownload.forEach((chunk, index) => {
         if (index > 0) {
             offset += silenceSamples;
         }
@@ -360,38 +454,41 @@ function buildDownload() {
 function finishPlayback() {
     playbackComplete = true;
     runActive = false;
+    generationActive = false;
     isPaused = false;
-    markCompletedChunks();
+    markCompletedChunks(playbackEndIndex >= 0 ? playbackEndIndex : chunks.length - 1);
     updateStats();
-    setStatus('Playback complete. WAV download is ready.', 'success');
+    setStatus(
+        downloadUrl ? 'Playback complete. WAV download is ready.' : 'Playback complete.',
+        'success',
+        'Ready'
+    );
     setControls();
 }
 
-async function resetRun(closeContext = true) {
+async function resetRun(options = {}) {
+    const {
+        closeContext = true,
+        clearAudio = true
+    } = typeof options === 'boolean' ? { closeContext: options } : options;
+
     runId += 1;
     stopPlaybackLoop();
-
-    for (const source of activeSources) {
-        try {
-            source.stop();
-        } catch {
-            // The source may have already ended.
-        }
-    }
-
-    activeSources = [];
+    stopActiveSources();
     scheduledChunks = [];
-    generatedChunks = [];
-    generatedCount = 0;
-    generatedAudioSeconds = 0;
     firstStartTime = null;
     nextStartTime = 0;
     activeChunkIndex = -1;
+    playbackEndIndex = -1;
     runActive = false;
+    generationActive = false;
     generationComplete = false;
     playbackComplete = false;
     isPaused = false;
-    revokeDownloadUrl();
+
+    if (clearAudio) {
+        clearGeneratedAudio({ update: false });
+    }
 
     if (audioContext && closeContext) {
         const contextToClose = audioContext;
@@ -413,11 +510,93 @@ async function ensureAudioContext() {
         throw new Error('This browser does not support Web Audio playback.');
     }
 
-    audioContext = new AudioContextCtor();
+    if (!audioContext || audioContext.state === 'closed') {
+        audioContext = new AudioContextCtor();
+    }
+
     await audioContext.resume();
 }
 
-async function generateAndPlay() {
+function scheduleGeneratedChunksFrom(localRunId, startIndex) {
+    let scheduledCount = 0;
+
+    for (let index = startIndex; index < chunks.length; index += 1) {
+        const generatedChunk = generatedChunks[index];
+        if (!generatedChunk) {
+            break;
+        }
+
+        scheduleChunk(localRunId, index, generatedChunk.wav);
+        scheduledCount += 1;
+    }
+
+    return scheduledCount;
+}
+
+async function playGeneratedFromChunk(index) {
+    if (!generatedChunks[index]) {
+        return false;
+    }
+
+    const keepGenerationAlive = generationActive;
+    if (!keepGenerationAlive) {
+        runId += 1;
+    }
+
+    const localRunId = runId;
+    stopPlaybackLoop();
+    stopActiveSources();
+    scheduledChunks = [];
+    firstStartTime = null;
+    nextStartTime = 0;
+    activeChunkIndex = -1;
+    playbackComplete = false;
+    isPaused = false;
+    runActive = true;
+
+    await ensureAudioContext();
+    const scheduledCount = scheduleGeneratedChunksFrom(localRunId, index);
+
+    if (scheduledCount === 0) {
+        runActive = keepGenerationAlive;
+        setControls();
+        return false;
+    }
+
+    updateReaderHighlight(index);
+    setStatus(`Playing from chunk ${index + 1} using generated audio.`, 'info', 'Playing');
+    updateStats();
+    setControls();
+    return true;
+}
+
+async function playFromChunk(index) {
+    hideError();
+
+    if (!chunks[index]) {
+        return;
+    }
+
+    if (generatedChunks[index]) {
+        try {
+            await playGeneratedFromChunk(index);
+        } catch (error) {
+            showError(error.message);
+            setStatus(`Could not start playback: ${error.message}`, 'error', 'Error');
+        }
+        return;
+    }
+
+    if (!modelsReady || !currentStyle) {
+        showError('Models and voice style are not ready yet.');
+        return;
+    }
+
+    setStatus(`Chunk ${index + 1} has not been generated yet. Generating from there...`, 'info', 'Generating');
+    await generateAndPlay(index);
+}
+
+async function generateAndPlay(startIndex = 0) {
     hideError();
 
     if (!textToSpeech || !currentStyle) {
@@ -431,11 +610,14 @@ async function generateAndPlay() {
         return;
     }
 
+    const boundedStartIndex = Math.min(Math.max(startIndex, 0), nextChunks.length - 1);
+
     await resetRun();
 
     chunks = nextChunks;
     renderReader(chunks);
     generatedChunks = new Array(chunks.length);
+    syncGeneratedChunkClasses();
 
     const localRunId = runId;
     const lang = langSelect.value;
@@ -443,6 +625,7 @@ async function generateAndPlay() {
     const speed = Number.parseFloat(speedInput.value);
 
     runActive = true;
+    generationActive = true;
     generationComplete = false;
     playbackComplete = false;
     isPaused = false;
@@ -450,15 +633,15 @@ async function generateAndPlay() {
 
     try {
         await ensureAudioContext();
-        setStatus(`Generating chunk 1 of ${chunks.length}...`);
+        setStatus(`Generating chunk ${boundedStartIndex + 1} of ${chunks.length}...`, 'info', 'Generating');
 
-        for (let index = 0; index < chunks.length; index += 1) {
+        for (let index = boundedStartIndex; index < chunks.length; index += 1) {
             if (localRunId !== runId) {
                 return;
             }
 
             const chunkNumber = index + 1;
-            setStatus(`Generating chunk ${chunkNumber} of ${chunks.length}...`);
+            setStatus(`Generating chunk ${chunkNumber} of ${chunks.length}...`, 'info', 'Generating');
 
             const result = await textToSpeech.synthesizeChunk(
                 chunks[index],
@@ -468,7 +651,7 @@ async function generateAndPlay() {
                 speed,
                 (step, total) => {
                     if (localRunId === runId) {
-                        setStatus(`Chunk ${chunkNumber} of ${chunks.length}: denoising ${step} of ${total}`);
+                        setStatus(`Chunk ${chunkNumber} of ${chunks.length}: denoising ${step} of ${total}`, 'info', 'Generating');
                     }
                 }
             );
@@ -478,13 +661,13 @@ async function generateAndPlay() {
             }
 
             generatedChunks[index] = result;
-            generatedCount += 1;
-            generatedAudioSeconds += result.duration + (index > 0 ? CHUNK_SILENCE_SECONDS : 0);
+            recalculateGeneratedStats();
+            syncGeneratedChunkClasses();
             scheduleChunk(localRunId, index, result.wav);
             updateStats();
 
-            if (index === 0) {
-                setStatus('Playback started. Generating remaining chunks...');
+            if (index === boundedStartIndex) {
+                setStatus('Playback started. Generating remaining chunks...', 'info', 'Playing');
             }
         }
 
@@ -493,8 +676,9 @@ async function generateAndPlay() {
         }
 
         generationComplete = true;
+        generationActive = false;
         buildDownload();
-        setStatus('All chunks generated. Playback is finishing...');
+        setStatus('All chunks generated. Playback is finishing...', 'info', 'Playing');
     } catch (error) {
         if (localRunId !== runId) {
             return;
@@ -503,7 +687,7 @@ async function generateAndPlay() {
         await resetRun();
         renderReader(chunks);
         showError(error.message);
-        setStatus(`Generation failed: ${error.message}`, 'error');
+        setStatus(`Generation failed: ${error.message}`, 'error', 'Error');
     } finally {
         setControls();
     }
@@ -516,7 +700,7 @@ async function pausePlayback() {
 
     await audioContext.suspend();
     isPaused = true;
-    setStatus('Playback paused.');
+    setStatus('Playback paused.', 'info', 'Paused');
     setControls();
 }
 
@@ -527,15 +711,20 @@ async function resumePlayback() {
 
     await audioContext.resume();
     isPaused = false;
-    setStatus(generationComplete ? 'Playback resumed.' : 'Playback resumed. Generation continues...');
+    setStatus(generationComplete ? 'Playback resumed.' : 'Playback resumed. Generation continues...', 'info', 'Playing');
     setControls();
     startPlaybackLoop(runId);
 }
 
 async function stopCurrentRun() {
-    await resetRun();
-    rebuildReaderPreview();
-    setStatus(modelsReady ? 'Stopped.' : 'Loading models...');
+    const hadGeneratedAudio = generatedCount > 0;
+    await resetRun({ clearAudio: false });
+    syncGeneratedChunkClasses();
+    setStatus(
+        hadGeneratedAudio ? 'Stopped. Generated chunks are still available.' : 'Stopped.',
+        'info',
+        modelsReady ? 'Ready' : 'Loading'
+    );
 }
 
 async function loadStyleFromJSON(stylePath, baseUrl = activeAssetBaseUrl) {
@@ -545,15 +734,25 @@ async function loadStyleFromJSON(stylePath, baseUrl = activeAssetBaseUrl) {
     currentStyle = nextStyle;
 }
 
-async function initializeModels() {
-    let lastError = null;
+async function initializeModels(assetSources = ASSET_BASE_URLS) {
+    const loadId = ++modelLoadId;
+    modelLoading = true;
+    modelsReady = false;
+    textToSpeech = null;
+    currentStyle = null;
+    hideError();
+    setControls();
 
-    for (const baseUrl of ASSET_BASE_URLS) {
+    let lastError = null;
+    const sources = assetSources.length > 0 ? assetSources : [DEFAULT_ASSET_BASE_URL];
+
+    for (const baseUrl of sources) {
         activeAssetBaseUrl = baseUrl;
         const sourceLabel = assetSourceLabel(baseUrl);
+        setModelSource(baseUrl, 'loading');
 
         try {
-            setStatus(`Loading configuration from ${sourceLabel}...`);
+            setStatus(`Loading configuration from ${sourceLabel}...`, 'info', 'Loading');
             const basePath = assetUrl('onnx', baseUrl);
             let executionProvider = 'wasm';
 
@@ -562,12 +761,15 @@ async function initializeModels() {
                     basePath,
                     {
                         executionProviders: ['webgpu'],
-                        graphOptimizationLevel: 'all'
-                    },
-                    (modelName, current, total) => {
-                        setStatus(`Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`);
+                    graphOptimizationLevel: 'all'
+                },
+                (modelName, current, total) => {
+                        if (loadId === modelLoadId) {
+                            setStatus(`Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`, 'info', 'Loading');
+                        }
                     }
                 );
+                if (loadId !== modelLoadId) return;
                 textToSpeech = result.textToSpeech;
                 executionProvider = 'webgpu';
                 backendBadge.textContent = 'WebGPU';
@@ -577,42 +779,61 @@ async function initializeModels() {
                     basePath,
                     {
                         executionProviders: ['wasm'],
-                        graphOptimizationLevel: 'all'
-                    },
-                    (modelName, current, total) => {
-                        setStatus(`Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`);
+                    graphOptimizationLevel: 'all'
+                },
+                (modelName, current, total) => {
+                        if (loadId === modelLoadId) {
+                            setStatus(`Loading ${sourceLabel} ONNX model ${current} of ${total}: ${modelName}`, 'info', 'Loading');
+                        }
                     }
                 );
+                if (loadId !== modelLoadId) return;
                 textToSpeech = result.textToSpeech;
                 executionProvider = 'wasm';
                 backendBadge.textContent = 'WebAssembly';
                 backendBadge.classList.remove('webgpu');
             }
 
-            setStatus(`Loading voice style from ${sourceLabel}...`);
+            setStatus(`Loading voice style from ${sourceLabel}...`, 'info', 'Loading');
             await loadStyleFromJSON(currentStylePath, baseUrl);
+            if (loadId !== modelLoadId) return;
 
             modelsReady = true;
+            modelLoading = false;
             backendBadge.classList.add('visible');
-            setStatus(`Models loaded with ${executionProvider.toUpperCase()} from ${sourceLabel}.`, 'success');
+            setModelSource(baseUrl, 'ready');
+            setStatus(`Models loaded with ${executionProvider.toUpperCase()} from ${sourceLabel}.`, 'success', 'Ready');
             setControls();
             return;
         } catch (error) {
+            if (loadId !== modelLoadId) return;
             lastError = error;
             console.warn(`Could not load Supertonic assets from ${sourceLabel}:`, error);
             textToSpeech = null;
             currentStyle = null;
             modelsReady = false;
 
-            if (baseUrl !== ASSET_BASE_URLS.at(-1)) {
-                setStatus(`Could not reach ${sourceLabel}; trying bundled model...`);
+            if (baseUrl !== sources.at(-1)) {
+                setStatus(`Could not reach ${sourceLabel}; trying bundled model...`, 'info', 'Fallback');
             }
         }
     }
 
-    setStatus(`Model load failed: ${lastError?.message || 'No model source was available.'}`, 'error');
+    modelLoading = false;
+    setStatus(`Model load failed: ${lastError?.message || 'No model source was available.'}`, 'error', 'Error');
     showError('Model assets could not be loaded from the CDN or the bundled assets folder.');
     setControls();
+}
+
+async function useBundledModel() {
+    if (runActive) {
+        return;
+    }
+
+    await resetRun();
+    rebuildReaderPreview();
+    setStatus('Switching to bundled model...', 'info', 'Loading');
+    await initializeModels([DEFAULT_ASSET_BASE_URL], 'manual');
 }
 
 fileInput.addEventListener('change', async () => {
@@ -634,6 +855,15 @@ fileInput.addEventListener('change', async () => {
 
 textInput.addEventListener('input', rebuildReaderPreview);
 langSelect.addEventListener('change', rebuildReaderPreview);
+function clearAudioAfterSynthesisSettingChange() {
+    if (!runActive) {
+        clearGeneratedAudio();
+    }
+}
+totalStepInput.addEventListener('input', clearAudioAfterSynthesisSettingChange);
+totalStepInput.addEventListener('change', clearAudioAfterSynthesisSettingChange);
+speedInput.addEventListener('input', clearAudioAfterSynthesisSettingChange);
+speedInput.addEventListener('change', clearAudioAfterSynthesisSettingChange);
 
 voiceStyleSelect.addEventListener('change', async (event) => {
     hideError();
@@ -643,6 +873,7 @@ voiceStyleSelect.addEventListener('change', async (event) => {
         generatePlayBtn.disabled = true;
         setStatus('Loading voice style...');
         await loadStyleFromJSON(event.target.value);
+        clearGeneratedAudio();
         setStatus('Voice style loaded.', 'success');
     } catch (error) {
         showError(`Could not load voice style: ${error.message}`);
@@ -652,10 +883,11 @@ voiceStyleSelect.addEventListener('change', async (event) => {
     }
 });
 
-generatePlayBtn.addEventListener('click', generateAndPlay);
+generatePlayBtn.addEventListener('click', () => generateAndPlay());
 pauseBtn.addEventListener('click', pausePlayback);
 resumeBtn.addEventListener('click', resumePlayback);
 stopBtn.addEventListener('click', stopCurrentRun);
+useBundledBtn.addEventListener('click', useBundledModel);
 downloadBtn.addEventListener('click', () => {
     if (!downloadUrl) {
         return;
@@ -678,8 +910,21 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
+async function registerServiceWorker() {
+    if (!import.meta.env.PROD || !('serviceWorker' in navigator) || !window.isSecureContext) {
+        return;
+    }
+
+    try {
+        await navigator.serviceWorker.register('./sw.js');
+    } catch (error) {
+        console.warn('Service worker registration failed:', error);
+    }
+}
+
 window.addEventListener('load', async () => {
     rebuildReaderPreview();
     setControls();
+    registerServiceWorker();
     await initializeModels();
 });

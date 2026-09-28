@@ -8,8 +8,11 @@ Browser-local text-to-speech reader for `.txt` files. It runs Supertonic 3 with 
 - Generate audio locally in the browser with WebGPU when available and WebAssembly fallback.
 - Stream playback chunk-by-chunk instead of waiting for the full file.
 - Follow along with chunk-level reader highlighting.
+- Double-click a reader chunk to start there; generated chunks reuse cached audio instead of synthesizing again.
 - Pause, resume, stop, and download the completed WAV after generation finishes.
 - Choose voice style, language, denoising steps, and speed.
+- Try CDN model loading first, with a manual bundled-model fallback.
+- Cache the app shell and ONNX Runtime files for faster repeat visits.
 
 ## Requirements
 
@@ -54,7 +57,7 @@ Build a self-contained static folder:
 npm run build:static
 ```
 
-The output goes to `web/dist` and includes the app, ONNX runtime files, Supertonic ONNX models, and voice styles. This build tries Hugging Face first, then falls back to the bundled model files if the CDN cannot be reached. Zip the contents of `web/dist`, upload the ZIP to a web server, unzip it, and open `index.html` over HTTP or HTTPS.
+The output goes to `web/dist` and includes the app, ONNX runtime files, Supertonic ONNX models, and voice styles. This build tries Hugging Face first, then falls back to the bundled model files if the CDN cannot be reached. It also includes a `Use Bundled Model` button for manually switching away from the CDN. Zip the contents of `web/dist`, upload the ZIP to a web server, unzip it, and open `index.html` over HTTP or HTTPS.
 
 The static bundle uses relative paths, so it can be hosted at the web server root or inside a subfolder.
 
@@ -82,3 +85,6 @@ The output goes to `web/dist` and includes the app plus ONNX Runtime Web files. 
 - Streaming means chunks are played as soon as they are generated. If generation is slower than playback, the player waits for the next chunk and resumes automatically.
 - Reader sync is chunk-level. Supertonic does not provide word timestamps in this browser path.
 - Very long files still require enough browser memory to keep generated chunks for the final WAV download.
+- The default step count is 6 for better speed on student devices and mobile browsers.
+- The service worker caches only the app shell/runtime files. It does not cache the large model files by default.
+- On mobile, keep the page open and the screen awake while generating.

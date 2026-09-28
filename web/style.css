@@ -47,7 +47,16 @@ h1 {
     font-size: 0.98rem;
 }
 
-.backend-badge {
+.badge-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.backend-badge,
+.source-badge {
     visibility: hidden;
     min-width: 118px;
     padding: 8px 12px;
@@ -59,12 +68,26 @@ h1 {
     text-align: center;
 }
 
-.backend-badge.visible {
+.source-badge {
+    min-width: 140px;
+    background: #465a69;
+}
+
+.backend-badge.visible,
+.source-badge.visible {
     visibility: visible;
 }
 
 .backend-badge.webgpu {
     background: #287d5a;
+}
+
+.source-badge.cdn {
+    background: #245f9f;
+}
+
+.source-badge.bundled {
+    background: #8a5a21;
 }
 
 .status-box {
@@ -78,6 +101,19 @@ h1 {
     background: #edf6ff;
     color: #174f8a;
     font-size: 0.94rem;
+}
+
+.status-phase {
+    display: inline-flex;
+    min-width: 78px;
+    margin-right: 10px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(47, 128, 237, 0.12);
+    color: inherit;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
 }
 
 .status-box.success {
@@ -221,6 +257,31 @@ button.primary:hover:not(:disabled) {
     background: #174f8a;
 }
 
+.secondary-action {
+    width: 100%;
+}
+
+.mobile-note {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid #d9e2ec;
+    border-left: 4px solid #d86f27;
+    border-radius: 8px;
+    background: #fffaf5;
+    color: #4e3b27;
+    line-height: 1.35;
+}
+
+.mobile-note strong {
+    font-size: 0.84rem;
+}
+
+.mobile-note span {
+    font-size: 0.9rem;
+}
+
 .error {
     display: none;
     padding: 12px;
@@ -304,14 +365,28 @@ button.primary:hover:not(:disabled) {
     border-left: 4px solid transparent;
     border-radius: 8px;
     color: #26323f;
+    cursor: pointer;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+    transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
+.reader-chunk:hover {
+    background: #f4f8fb;
+}
+
+.reader-chunk:focus-visible {
+    outline: 3px solid rgba(36, 95, 159, 0.28);
+    outline-offset: 2px;
 }
 
 .reader-chunk.complete {
     color: #66788a;
     background: #f7fafc;
+}
+
+.reader-chunk.generated {
+    box-shadow: inset 0 0 0 1px #c9d8e8;
 }
 
 .reader-chunk.active {
@@ -347,7 +422,9 @@ button.primary:hover:not(:disabled) {
         flex-direction: column;
     }
 
-    .backend-badge {
+    .badge-row,
+    .backend-badge,
+    .source-badge {
         width: 100%;
     }
 
